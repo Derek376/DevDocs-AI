@@ -3,8 +3,9 @@
 A technical documentation assistant that retrieves relevant passages from uploaded
 documents and uses a language model to produce answers with source citations.
 
-**Status:** Milestone 0 — planning and repository setup. No application, database,
-or AI integration is implemented yet. This project is built one milestone at a
+**Status:** Milestone 1 — FastAPI backend foundation complete. The API has a
+health endpoint, validated settings, and automated tests. Database and AI
+integration are not implemented yet. This project is built one milestone at a
 time, with explanations and verification before continuing.
 
 ## Problem and intended outcome
@@ -134,7 +135,7 @@ index choices will be decided in the corresponding milestones.
 
 ## Directory structure
 
-Created now:
+Current layout:
 
 ```text
 DevDocs AI/
@@ -142,7 +143,21 @@ DevDocs AI/
 ├── .gitignore
 ├── .env.example
 ├── backend/
-│   └── .gitkeep
+│   ├── pyproject.toml       # dependencies and test/lint configuration
+│   ├── uv.lock              # exact resolved dependency versions
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py          # create_app factory
+│   │   ├── api/
+│   │   │   ├── __init__.py
+│   │   │   └── health.py    # route and response schema
+│   │   └── core/
+│   │       ├── __init__.py
+│   │       └── config.py    # typed environment settings
+│   └── tests/
+│       ├── conftest.py
+│       ├── test_health.py
+│       └── test_config.py
 └── frontend/
     └── .gitkeep
 ```
@@ -172,23 +187,77 @@ FastAPI supports grouping routes in modules using `APIRouter`; see its
 
 ## Configuration and secrets
 
-`.env.example` currently contains safe planning placeholders. No code consumes
-them yet; exact settings will be added when their features are implemented.
+The backend reads optional settings from `.env` in the repository root. Its path
+is resolved relative to `config.py`, so it does not depend on the shell's working
+directory. Copy `.env.example` to `.env` if you want to change defaults.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `APP_NAME` | `DevDocs AI` | API title in generated documentation; must be nonempty. |
+| `APP_ENV` | `development` | Environment label: `development`, `test`, or `production`. |
+
+`APP_ENV` does not automatically enable production security or change logging.
+Logging and provider/database settings will be added when needed. Configuration
+precedence is explicit constructor values → environment variables → `.env` →
+defaults. Invalid values prevent application creation rather than silently using
+a fallback. Unknown dotenv keys are ignored so the root file can eventually hold
+settings for other components.
+
 A developer's `.env` is ignored by Git. Real keys must never appear in tracked
 files, logs, screenshots, or frontend configuration.
 
 ## Development and verification
 
-There are no install, run, test, or build commands yet because the application
-has not been scaffolded. Each milestone will document its dependencies and
-commands, explain the code, report verification, and suggest a commit message.
+Prerequisites: Python 3.12–3.14 and [uv](https://docs.astral.sh/uv/).
+The backend is an application, not a published Python package. Commands below
+run from `backend/`; uv manages its ignored `.venv` directory. The checked-in
+lockfile pins resolved versions; `--locked` rejects stale dependency metadata.
+
+From the repository root:
+
+```sh
+cd backend
+uv sync --locked
+uv run --locked uvicorn app.main:create_app --factory --reload
+```
+
+Visit [interactive API docs](http://127.0.0.1:8000/docs), or check:
+
+```sh
+curl http://127.0.0.1:8000/health
+# {"status":"ok"}
+```
+
+The server uses Uvicorn, which runs the FastAPI ASGI application. `--factory`
+invokes `create_app()` at startup; `--reload` is for local development.
+`GET /health` is a **liveness** check: HTTP 200 means the API can respond. It does
+not verify database connectivity or AI provider availability. A later readiness
+check can assess dependencies without changing this endpoint's meaning.
+
+Run checks from `backend/`:
+
+```sh
+uv run --locked pytest
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+```
+
+Tests use FastAPI's in-process `TestClient`; no network server is needed. They
+check the health response and OpenAPI contract, configuration defaults and source
+precedence, rejection of invalid environments, and settings supplied to the
+application factory. Fixtures isolate tests from developer environment settings.
+No frontend build or Python package build exists at this milestone.
+
+Documentation consulted: [FastAPI testing](https://fastapi.tiangolo.com/tutorial/testing/),
+[Pydantic settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/),
+and [uv projects](https://docs.astral.sh/uv/guides/projects/).
 
 ## Roadmap
 
 | Milestone | Deliverable | Status |
 | --- | --- | --- |
 | 0 | Requirements, MVP scope, architecture, repository skeleton | Complete |
-| 1 | FastAPI, health endpoint, configuration, pytest foundation | Planned |
+| 1 | FastAPI, health endpoint, configuration, pytest foundation | Complete |
 | 2 | Compose database, PostgreSQL + pgvector, models, migrations | Planned |
 | 3 | Validated uploads, text extraction, metadata, chunking | Planned |
 | 4 | Embeddings, vector persistence, semantic retrieval | Planned |
@@ -209,7 +278,7 @@ questions. Definitions, scoring, and results arrive in Milestone 8.
 
 ## Limitations and future work
 
-No running application exists yet. The MVP scope excludes scanned PDFs and
+The backend currently exposes only health and generated API documentation. The MVP scope excludes scanned PDFs and
 multi-user access. Model context limits, provider cost/latency, upload processing
 time, prompt injection, and retrieval quality will inform later decisions.
 Local models are a future provider option; none is selected or installed now.
@@ -224,3 +293,21 @@ Local models are a future provider option; none is selected or installed now.
 
 Screenshots, detailed API documentation, measured results, and final interview
 talking points will be added once the relevant features exist.
+
+
+## Interview notes — Milestone 1
+
+- **Application factory:** `create_app()` constructs a fresh API and loads settings
+  only when called. Tests can inject configuration without import-time side effects.
+- **Typed response:** `HealthResponse` describes the public JSON contract; FastAPI
+  uses the return annotation for response validation and OpenAPI documentation.
+- **HTTP semantics:** the health check uses GET because it reads status without
+  changing data, and returns 200 when the API responds successfully.
+- **Configuration:** separate deployment settings from code and validate them at
+  startup. Never return the full settings object through an API endpoint.
+- **Async:** the health route uses `async def` and does no blocking work. Async
+  becomes useful for waiting on I/O; it does not speed up CPU-heavy extraction.
+- **Testing:** in-process HTTP tests exercise routing and serialization. They do
+  not replace testing a real server; a local server smoke check covers startup.
+- **Dependencies:** `pyproject.toml` declares supported ranges; `uv.lock` records
+  exact versions. Development tools are separated from runtime dependencies.
