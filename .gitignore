@@ -1,0 +1,35 @@
+# Local secrets; retain safe example files.
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Python environments and generated files.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+
+# Frontend dependencies and build output.
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Local runtime data and logs.
+data/
+uploads/
+*.log
+
+# Operating system and editor files.
+.DS_Store
+.idea/
+.vscode/
