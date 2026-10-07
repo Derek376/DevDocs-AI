@@ -3,10 +3,11 @@
 A technical documentation assistant that retrieves relevant passages from uploaded
 documents and uses a language model to produce answers with source citations.
 
-**Status:** Milestone 1 — FastAPI backend foundation complete. The API has a
-health endpoint, validated settings, and automated tests. Database and AI
-integration are not implemented yet. This project is built one milestone at a
-time, with explanations and verification before continuing.
+**Status:** Milestone 2 — PostgreSQL + pgvector foundation complete. The backend
+has liveness/readiness endpoints, a database connection, document/chunk models,
+and migrations. Uploads, embeddings, and AI integration are not implemented yet.
+This project is built one milestone at a time, with explanations and verification
+before continuing.
 
 ## Problem and intended outcome
 
@@ -123,15 +124,25 @@ reference validity; evaluating whether a cited passage actually supports a
 claim is a separate quality task. RAG reduces unsupported answers but does not
 eliminate them.
 
-### Conceptual data model — not implemented
+### Database model — implemented in Milestone 2
 
-- **Document:** identifier, original filename, type, size, ingestion status,
-  timestamps, and safe failure information.
-- **Chunk:** identifier, parent document, position, text, source location, and
-  embedding/model metadata.
+- **Document:** UUID, filename, media type, size in bytes, processing/ready/failed
+  status, optional safe error message, and timezone-aware creation/update times.
+- **Chunk:** UUID, document UUID, zero-based position, text, optional one-based PDF
+  page reference, and creation time.
 
-One document has many chunks. Exact schema, vector dimensions, migrations, and
-index choices will be decided in the corresponding milestones.
+One document has many chunks. A foreign key prevents orphan chunks; a unique
+constraint prevents two chunks occupying the same position in a document. Its
+index also supports querying chunks by document. Database check constraints
+reject invalid sizes, statuses, positions, empty text/filenames, and page numbers.
+Deleting a document cascades to its chunks; no deletion API is implemented yet.
+UUIDs provide stable source identifiers independent of filename or text changes.
+`updated_at` is refreshed by SQLAlchemy updates, not a database trigger; direct SQL
+writers must set it themselves.
+
+Embeddings, model/chunking metadata, vector dimensions, and similarity indexes
+will be added in their own milestones. Enabling pgvector now does not generate
+embeddings or make the current text rows semantically searchable.
 
 ## Directory structure
 
@@ -142,22 +153,33 @@ DevDocs AI/
 ├── README.md
 ├── .gitignore
 ├── .env.example
+├── compose.yaml             # local PostgreSQL + pgvector service
 ├── backend/
 │   ├── pyproject.toml       # dependencies and test/lint configuration
 │   ├── uv.lock              # exact resolved dependency versions
+│   ├── alembic.ini          # migration configuration
+│   ├── migrations/          # env.py, revision template, and versioned schema
 │   ├── app/
 │   │   ├── __init__.py
 │   │   ├── main.py          # create_app factory
 │   │   ├── api/
 │   │   │   ├── __init__.py
 │   │   │   └── health.py    # route and response schema
-│   │   └── core/
+│   │   ├── core/
+│   │   │   ├── __init__.py
+│   │   │   └── config.py    # typed environment settings
+│   │   └── persistence/
 │   │       ├── __init__.py
-│   │       └── config.py    # typed environment settings
+│   │       ├── database.py # connection pool and request sessions
+│   │       └── models.py   # document and chunk tables
 │   └── tests/
 │       ├── conftest.py
 │       ├── test_health.py
-│       └── test_config.py
+│       ├── test_config.py
+│       ├── test_database_config.py
+│       ├── test_readiness.py
+│       └── integration/
+│           └── test_database.py
 └── frontend/
     └── .gitkeep
 ```
@@ -178,9 +200,10 @@ backend/
 ```
 
 Frontend source layout will be chosen when Vite is scaffolded in Milestone 6.
-Compose configuration, CI workflows, and evaluation data arrive in their own
-milestones. Prefer small modules and simple functions/classes; do not introduce
-a generic framework or a separate service for every responsibility.
+CI workflows and evaluation data arrive in their own milestones.
+Compose currently runs the database only; application containers arrive later.
+Prefer small modules and simple functions/classes; do not introduce a generic
+framework or a separate service for every responsibility.
 
 FastAPI supports grouping routes in modules using `APIRouter`; see its
 [Bigger Applications guide](https://fastapi.tiangolo.com/tutorial/bigger-applications/).
@@ -195,9 +218,14 @@ directory. Copy `.env.example` to `.env` if you want to change defaults.
 | --- | --- | --- |
 | `APP_NAME` | `DevDocs AI` | API title in generated documentation; must be nonempty. |
 | `APP_ENV` | `development` | Environment label: `development`, `test`, or `production`. |
+| `POSTGRES_HOST` | `127.0.0.1` | Host address used by the locally running backend. |
+| `POSTGRES_PORT` | `5432` | Host port; valid range 1–65535. |
+| `POSTGRES_DB` | `devdocs` | Database name. |
+| `POSTGRES_USER` | `devdocs` | Local database user. |
+| `POSTGRES_PASSWORD` | unset | Required for database setup; set a nonempty local value. |
 
 `APP_ENV` does not automatically enable production security or change logging.
-Logging and provider/database settings will be added when needed. Configuration
+Logging and provider settings will be added when needed. Configuration
 precedence is explicit constructor values → environment variables → `.env` →
 defaults. Invalid values prevent application creation rather than silently using
 a fallback. Unknown dotenv keys are ignored so the root file can eventually hold
@@ -208,7 +236,8 @@ files, logs, screenshots, or frontend configuration.
 
 ## Development and verification
 
-Prerequisites: Python 3.12–3.14 and [uv](https://docs.astral.sh/uv/).
+Prerequisites: Python 3.12–3.14, [uv](https://docs.astral.sh/uv/), and Docker
+with Compose. Docker Desktop must be running for database commands.
 The backend is an application, not a published Python package. Commands below
 run from `backend/`; uv manages its ignored `.venv` directory. The checked-in
 lockfile pins resolved versions; `--locked` rejects stale dependency metadata.
@@ -216,10 +245,20 @@ lockfile pins resolved versions; `--locked` rejects stale dependency metadata.
 From the repository root:
 
 ```sh
+cp -n .env.example .env
+# Edit .env and set POSTGRES_PASSWORD to your own nonempty local password.
+docker compose up -d --wait db
 cd backend
 uv sync --locked
+uv run --locked alembic upgrade head
 uv run --locked uvicorn app.main:create_app --factory --reload
 ```
+
+If `.env` already exists, keep it and add the database settings instead of copying
+over it. A blank password is invalid; omitting the password allows liveness-only
+API use and causes `/ready` to return 503. Compose requires the password.
+If port 5432 is occupied, change `POSTGRES_PORT` in `.env`; both the port mapping
+and backend connection use it.
 
 Visit [interactive API docs](http://127.0.0.1:8000/docs), or check:
 
@@ -231,8 +270,10 @@ curl http://127.0.0.1:8000/health
 The server uses Uvicorn, which runs the FastAPI ASGI application. `--factory`
 invokes `create_app()` at startup; `--reload` is for local development.
 `GET /health` is a **liveness** check: HTTP 200 means the API can respond. It does
-not verify database connectivity or AI provider availability. A later readiness
-check can assess dependencies without changing this endpoint's meaning.
+not verify database connectivity or AI provider availability. `GET /ready` executes
+`SELECT 1` and returns 200 if the database is reachable, or a useful 503 response
+if it is unavailable/unconfigured. It does not verify migration state or AI
+provider availability. Apply migrations before using future database features.
 
 Run checks from `backend/`:
 
@@ -248,6 +289,35 @@ precedence, rejection of invalid environments, and settings supplied to the
 application factory. Fixtures isolate tests from developer environment settings.
 No frontend build or Python package build exists at this milestone.
 
+Without `TEST_DATABASE_URL`, 12 database integration cases are explicitly skipped;
+16 non-integration tests still run. To exercise all 28 tests against the local
+Compose database, run this from `backend/` (it reads `.env` without printing the
+password):
+
+```sh
+uv run --locked python - <<'PYTEST'
+import os
+import pytest
+from app.core.config import Settings
+
+os.environ["TEST_DATABASE_URL"] = Settings().database_url.render_as_string(
+    hide_password=False
+)
+raise SystemExit(pytest.main(["-q"]))
+PYTEST
+```
+
+Alternatively supply `TEST_DATABASE_URL` using the `postgresql+psycopg` scheme
+through your environment. Use a local/test server and a user allowed to create
+and drop databases and enable pgvector. Each integration case creates a uniquely
+named disposable database and drops only that database after the test. Cases
+verify extension availability, migration downgrade/reapply, model/schema
+agreement, persistence, constraints, cascade deletion, readiness, and request
+session commit/rollback. SQLite cannot validate these PostgreSQL-specific features.
+
+Milestone 2 verification: all 28 tests passed on Python 3.14.7 with PostgreSQL 17
+and pgvector 0.8.2; Ruff lint/format checks and `alembic check` passed.
+
 Documentation consulted: [FastAPI testing](https://fastapi.tiangolo.com/tutorial/testing/),
 [Pydantic settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/),
 and [uv projects](https://docs.astral.sh/uv/guides/projects/).
@@ -258,7 +328,7 @@ and [uv projects](https://docs.astral.sh/uv/guides/projects/).
 | --- | --- | --- |
 | 0 | Requirements, MVP scope, architecture, repository skeleton | Complete |
 | 1 | FastAPI, health endpoint, configuration, pytest foundation | Complete |
-| 2 | Compose database, PostgreSQL + pgvector, models, migrations | Planned |
+| 2 | Compose database, PostgreSQL + pgvector, models, migrations | Complete |
 | 3 | Validated uploads, text extraction, metadata, chunking | Planned |
 | 4 | Embeddings, vector persistence, semantic retrieval | Planned |
 | 5 | Basic RAG pipeline with source citations | Planned |
@@ -278,8 +348,8 @@ questions. Definitions, scoring, and results arrive in Milestone 8.
 
 ## Limitations and future work
 
-The backend currently exposes only health and generated API documentation. The MVP scope excludes scanned PDFs and
-multi-user access. Model context limits, provider cost/latency, upload processing
+The backend currently exposes health, database readiness, and generated API
+documentation. The MVP scope excludes scanned PDFs and multi-user access. Model context limits, provider cost/latency, upload processing
 time, prompt injection, and retrieval quality will inform later decisions.
 Local models are a future provider option; none is selected or installed now.
 
@@ -311,3 +381,65 @@ talking points will be added once the relevant features exist.
   not replace testing a real server; a local server smoke check covers startup.
 - **Dependencies:** `pyproject.toml` declares supported ranges; `uv.lock` records
   exact versions. Development tools are separated from runtime dependencies.
+
+
+## Database operations and design decisions — Milestone 2
+
+The Compose service uses `pgvector/pgvector:0.8.2-pg17-trixie`: PostgreSQL 17 with
+the extension installed. Migration `0001` enables it in the application database
+with `CREATE EXTENSION IF NOT EXISTS vector`. The named volume keeps database
+files across container recreation. Only localhost can reach the published port.
+The Compose health check tests server availability; it does not apply migrations.
+See the [Compose service reference](https://docs.docker.com/reference/compose-file/services/)
+and [pgvector documentation](https://github.com/pgvector/pgvector).
+
+From the repository root, `docker compose stop db` stops the service while
+retaining its volume; `docker compose up -d --wait db` starts it again.
+The initial `POSTGRES_*` values initialize a new volume. Changing those values in
+`.env` does not change credentials or database names inside an existing volume.
+This local setup uses the image's administrative user. A deployed application
+should use a restricted runtime role and a separate migration role.
+
+SQLAlchemy's async engine owns a reusable connection pool. FastAPI's lifespan
+creates it once and disposes it at shutdown. `pool_pre_ping` checks pooled
+connections before reuse. An engine is not a session: each request receives a
+new `AsyncSession`, and successful writes must explicitly commit. Closing the
+session rolls back uncommitted work, including when a handler raises an error.
+A session must not be shared across concurrent requests. `expire_on_commit=False`
+keeps loaded values accessible after commit without an implicit async reload.
+See [SQLAlchemy async support](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html).
+
+Alembic applies versioned schema changes separately from server startup:
+
+```sh
+# From backend/
+uv run --locked alembic current
+uv run --locked alembic upgrade head
+uv run --locked alembic check
+# For later schema changes, generate and review a candidate migration:
+uv run --locked alembic revision --autogenerate -m "describe schema change"
+```
+
+Autogeneration is a starting point requiring review; extension operations are
+written explicitly. The revision template supports future migrations.
+`alembic downgrade base` drops documents and chunks, so it should only be used
+on disposable databases; tests exercise it there. The downgrade deliberately
+retains pgvector because unrelated tables could depend on it.
+See [Alembic's async migration recipe](https://alembic.sqlalchemy.org/en/latest/cookbook.html#using-asyncio-with-alembic).
+
+## Interview notes — Milestone 2
+
+- **Vector database:** stores numerical representations and finds neighbours by
+  a distance/similarity metric. An embedding model produces the numbers; the
+  database stores and searches them. It does not generate embeddings itself.
+- **pgvector:** adds vector types and similarity operations to PostgreSQL, so
+  relational document metadata and vectors can share transactions and joins.
+- **Migration vs model:** the model describes the desired mapping; a migration
+  records how to change an existing database. Editing a model does not alter a table.
+- **Foreign key vs validation:** API checks give useful errors; database constraints
+  protect integrity even if writes bypass the API.
+- **Transaction:** a group of writes either commits or rolls back. In later ingestion
+  work this helps prevent partially saved document/chunk collections.
+- **Connection pool vs session:** the pool reuses connections; a session tracks one
+  unit of work. Async I/O lets the server handle other requests while waiting for SQL.
+- **Scope:** no uploads, vector column, embedding provider, or semantic search yet.

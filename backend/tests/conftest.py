@@ -11,7 +11,8 @@ from app.main import create_app
 
 @pytest.fixture(autouse=True)
 def clean_settings_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("APP_NAME", "APP_ENV", "app_name", "app_env"):
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setitem(Settings.model_config, "env_file", None)
 

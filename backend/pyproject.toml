@@ -4,8 +4,11 @@ version = "0.1.0"
 description = "REST API for the DevDocs AI documentation assistant"
 requires-python = ">=3.12,<3.15"
 dependencies = [
+    "alembic>=1.14,<2.0",
     "fastapi>=0.115,<1.0",
     "pydantic-settings>=2.6,<3.0",
+    "psycopg[binary]>=3.2,<4.0",
+    "sqlalchemy[asyncio]>=2.0,<2.1",
     "uvicorn>=0.32,<1.0",
 ]
 
@@ -23,6 +26,7 @@ package = false
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
+markers = ["integration: requires TEST_DATABASE_URL and a live pgvector PostgreSQL server"]
 
 [tool.ruff]
 target-version = "py312"
