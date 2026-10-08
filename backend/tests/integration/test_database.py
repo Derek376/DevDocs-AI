@@ -22,6 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.ai.embeddings import EmbeddingError
+from app.ai.llm import GeneratedAnswer
+from app.api.questions import get_llm_provider
 from app.api.search import get_embedding_provider
 from app.core.config import Settings
 from app.main import create_app
@@ -426,3 +428,97 @@ def test_embedding_migration_preserves_existing_text(database_engine: Engine) ->
         assert chunk.text == "old"
         assert chunk.embedding is None
         assert chunk.embedding_model is None
+
+
+def test_rag_pipeline_returns_answer_and_real_pdf_source_reference(
+    database_engine: Engine, make_pdf: Callable
+) -> None:
+    import json
+
+    class SourceUsingLLM:
+        model_id = "test:llm"
+
+        async def generate(self, system_prompt, user_prompt):
+            sources = json.loads(user_prompt)["sources"]
+            assert (
+                sources[0]["text"] == "Database changes can be undone using rollback."
+            )
+            return GeneratedAnswer(answer="Use rollback [S1].", citation_labels=["S1"])
+
+    app = create_app(settings_for(database_engine))
+    app.dependency_overrides[get_embedding_provider] = lambda: KnownVectorProvider()
+    app.dependency_overrides[get_llm_provider] = lambda: SourceUsingLLM()
+    with TestClient(app) as client:
+        response = client.post(
+            "/documents",
+            files={
+                "file": (
+                    "guide.pdf",
+                    make_pdf(["Database changes can be undone using rollback."]),
+                    "application/pdf",
+                )
+            },
+        )
+        document_id = response.json()["id"]
+        assert client.post(f"/documents/{document_id}/index").status_code == 200
+        response = client.post(
+            "/questions", json={"question": "How do I undo database changes?"}
+        )
+        assert response.status_code == 200, response.text
+        answer = response.json()
+        assert answer["status"] == "answered"
+        assert answer["answer"] == "Use rollback [S1]."
+        chunk = client.get(f"/documents/{document_id}/chunks").json()[0]
+        citation = answer["citations"][0]
+        assert citation["chunk_id"] == chunk["id"]
+        assert citation["document_id"] == document_id
+        assert citation["text"] == chunk["text"]
+        assert citation["filename"] == "guide.pdf"
+        assert citation["source_page"] == 1
+        assert citation["label"] == "S1"
+        assert client.post("/questions", json={"question": " "}).status_code == 422
+
+
+def test_empty_corpus_does_not_call_llm(database_engine: Engine) -> None:
+    class NeverCalledLLM:
+        model_id = "test:llm"
+
+        async def generate(self, system_prompt, user_prompt):
+            raise AssertionError("LLM should not be called without sources")
+
+    app = create_app(settings_for(database_engine))
+    app.dependency_overrides[get_embedding_provider] = lambda: KnownVectorProvider()
+    app.dependency_overrides[get_llm_provider] = lambda: NeverCalledLLM()
+    with TestClient(app) as client:
+        result = client.post("/questions", json={"question": "How does this work?"})
+        assert result.status_code == 200
+        assert result.json()["status"] == "insufficient_evidence"
+        assert result.json()["citations"] == []
+
+
+def test_hallucinated_citation_is_not_returned_as_an_answer(
+    database_engine: Engine,
+) -> None:
+    class InvalidCitationLLM:
+        model_id = "test:llm"
+
+        async def generate(self, system_prompt, user_prompt):
+            return GeneratedAnswer(
+                answer="Use rollback [S99].", citation_labels=["S99"]
+            )
+
+    app = create_app(settings_for(database_engine))
+    app.dependency_overrides[get_embedding_provider] = lambda: KnownVectorProvider()
+    app.dependency_overrides[get_llm_provider] = lambda: InvalidCitationLLM()
+    with TestClient(app) as client:
+        document_id = client.post(
+            "/documents",
+            files={
+                "file": ("guide.txt", b"Database rollback instructions.", "text/plain")
+            },
+        ).json()["id"]
+        assert client.post(f"/documents/{document_id}/index").status_code == 200
+        result = client.post("/questions", json={"question": "database rollback"})
+        assert result.status_code == 502
+        assert "answer" not in result.json()
+        assert "citations" in result.json()["detail"]

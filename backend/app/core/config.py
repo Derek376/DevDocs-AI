@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     embedding_dimensions: int = Field(default=768, ge=1, le=16000)
     embedding_batch_size: int = Field(default=32, ge=1, le=128)
     embedding_timeout_seconds: float = Field(default=120, gt=0, le=600)
+    llm_model: str = Field(default="llama3.2:1b", min_length=1, max_length=200)
+    llm_timeout_seconds: float = Field(default=120, gt=0, le=600)
 
     @model_validator(mode="after")
     def validate_chunk_overlap(self) -> "Settings":

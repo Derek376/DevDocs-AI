@@ -3,9 +3,9 @@
 A technical documentation assistant that retrieves relevant passages from uploaded
 documents and uses a language model to produce answers with source citations.
 
-**Status:** Milestone 4 — embeddings and semantic search complete. Documents can
-be uploaded, explicitly indexed with local Ollama embeddings, and searched using
-pgvector cosine distance. Generated answers and LLM integration wait for Milestone 5.
+**Status:** Milestone 5 — basic RAG complete. Uploaded and indexed documents can
+now answer questions through a local LLM, with source chunk citations resolved by
+the backend. Frontend, retrieval tuning, and quality evaluation remain later milestones.
 This project is built one milestone at a time, with explanations and verification
 before continuing.
 
@@ -169,11 +169,13 @@ DevDocs AI/
 │   │   │   ├── health.py    # liveness/readiness routes
 │   │   │   ├── documents.py # upload and inspection routes
 │   │   │   ├── document_schemas.py
-│   │   │   └── search.py    # index and semantic retrieval routes
+│   │   │   ├── search.py    # index and semantic retrieval routes
+│   │   │   └── questions.py # RAG answer and citation contracts
 │   │   ├── ai/
 │   │   │   ├── __init__.py
 │   │   │   ├── embeddings.py # provider contract and vector validation
-│   │   │   └── ollama.py     # local embedding adapter
+│   │   │   ├── ollama.py     # local embedding and generation adapters
+│   │   │   └── llm.py        # generation contract and structured output
 │   │   ├── core/
 │   │   │   ├── __init__.py
 │   │   │   └── config.py    # typed environment settings
@@ -183,7 +185,8 @@ DevDocs AI/
 │   │   │   ├── extraction.py
 │   │   │   ├── chunking.py
 │   │   │   ├── document_errors.py
-│   │   │   └── search.py     # indexing and retrieval orchestration
+│   │   │   ├── search.py     # indexing and retrieval orchestration
+│   │   │   └── rag.py        # context, prompt, generation, citation resolution
 │   │   └── persistence/
 │   │       ├── __init__.py
 │   │       ├── database.py # connection pool and request sessions
@@ -201,6 +204,8 @@ DevDocs AI/
 │       ├── test_document_api.py
 │       ├── test_embeddings.py
 │       ├── test_search_api.py
+│       ├── test_llm.py
+│       ├── test_rag.py
 │       └── integration/
 │           └── test_database.py
 └── frontend/
@@ -255,7 +260,9 @@ directory. Copy `.env.example` to `.env` if you want to change defaults.
 | `EMBEDDING_MODEL` | `embeddinggemma` | Dedicated embedding model downloaded through Ollama. |
 | `EMBEDDING_DIMENSIONS` | `768` | Expected output size; mismatches reject indexing/search. |
 | `EMBEDDING_BATCH_SIZE` | `32` | Number of chunks per model request, valid range 1–128. |
-| `EMBEDDING_TIMEOUT_SECONDS` | `120` | Timeout per model request. |
+| `EMBEDDING_TIMEOUT_SECONDS` | `120` | Timeout per embedding request. |
+| `LLM_MODEL` | `llama3.2:1b` | Local chat model, separate from the embedding model. |
+| `LLM_TIMEOUT_SECONDS` | `120` | Timeout per answer-generation request. |
 
 `APP_ENV` does not automatically enable production security or change logging.
 Logging and provider settings will be added when needed. Configuration
@@ -322,8 +329,8 @@ precedence, rejection of invalid environments, and settings supplied to the
 application factory. Fixtures isolate tests from developer environment settings.
 No frontend build or Python package build exists at this milestone.
 
-Without `TEST_DATABASE_URL`, 21 database integration cases are explicitly skipped;
-69 non-integration tests still run. To exercise all 90 tests against the local
+Without `TEST_DATABASE_URL`, 24 database integration cases are explicitly skipped;
+87 non-integration tests still run. To exercise all 111 tests against the local
 Compose database, run this from `backend/` (it reads `.env` without printing the
 password):
 
@@ -365,7 +372,7 @@ and [uv projects](https://docs.astral.sh/uv/guides/projects/).
 | 2 | Compose database, PostgreSQL + pgvector, models, migrations | Complete |
 | 3 | Validated uploads, text extraction, metadata, chunking | Complete |
 | 4 | Embeddings, vector persistence, semantic retrieval | Complete |
-| 5 | Basic RAG pipeline with source citations | Planned |
+| 5 | Basic RAG pipeline with source citations | Complete |
 | 6 | React upload, document list, questions, answers, and sources | Planned |
 | 7 | Retrieval settings, filters, context cleanup, insufficient-evidence handling | Planned |
 | 8 | Evaluation dataset: retrieval relevance, groundedness, citation correctness | Planned |
@@ -383,8 +390,8 @@ questions. Definitions, scoring, and results arrive in Milestone 8.
 ## Limitations and future work
 
 The backend exposes document ingestion/inspection, health, database readiness,
-and generated API documentation. It embeds text and returns retrieved evidence,
-but does not yet generate answers. The MVP scope excludes scanned PDFs and multi-user access. Model context limits, provider cost/latency, upload processing
+and generated API documentation. It embeds text, retrieves evidence, and generates
+answers with source references. Groundedness is not guaranteed by citation validity. The MVP scope excludes scanned PDFs and multi-user access. Model context limits, provider cost/latency, upload processing
 time, prompt injection, and retrieval quality will inform later decisions.
 Local models are a future provider option; none is selected or installed now.
 
@@ -624,7 +631,7 @@ position, optional PDF page, source text, and similarity. Search returns an empt
 list when no compatible indexed chunks exist. Questions must contain text and
 be at most 2000 characters. Configurable retrieval counts, document filters, and
 minimum evidence thresholds wait for Milestone 7. This route returns retrieved
-sources only; there is no generated answer or RAG prompt yet.
+sources only. Use `/questions`, introduced in Milestone 5, for generated answers.
 
 ### Important code and design decisions
 
@@ -691,3 +698,128 @@ question. Transaction documentation ranked first (similarity approximately 0.529
 ahead of Docker (0.205) and React (0.186). This is a smoke check, not an evaluation
 benchmark. The disposable verification database and API process were removed;
 the development database migration preserves existing uploads.
+
+
+## Basic RAG — Milestone 5
+
+The implemented flow is:
+
+```mermaid
+flowchart LR
+    Q[Question] --> E[Question embedding]
+    E --> R[Retrieve up to 5 pgvector matches]
+    R --> C[Bound source excerpts and assign labels]
+    C --> P[Evidence-only system prompt plus question and sources]
+    P --> L[Local LLM structured response]
+    L --> V[Validate markers and resolve citations]
+    V --> A[Generated answer and separate source evidence]
+```
+
+The local generation adapter uses the already-installed `llama3.2:1b` model. For
+another machine, run `ollama pull llama3.2:1b` alongside the embedding model setup.
+The generation and embedding providers use independent interfaces and model
+settings; replacing one does not require changing the other. No new dependency
+or database migration is needed for this milestone.
+
+After uploading and indexing a document, with the API running:
+
+```sh
+curl -X POST http://127.0.0.1:8000/questions \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"How can I undo database changes after an error?"}'
+```
+
+`POST /questions` accepts the same validated question shape as `/search`. It
+returns `answer`, `status`, `citations`, and the configured `llm_model` and
+`embedding_model` identifiers. For example, generated text can say
+`To undo changes, issue ROLLBACK [S1].`; citation `S1` separately identifies a real
+chunk/document UUID, filename, position, PDF page if available, retrieved excerpt,
+similarity, and whether that excerpt was truncated. Citations include only the
+sources used in the answer, not every retrieved passage.
+
+### What RAG solves
+
+A direct LLM call has the question and the model's training knowledge. It may lack
+private documents, changes made after training, or the correct version of an API.
+RAG retrieves relevant evidence at request time and supplies it in the prompt.
+The model is not retrained by an upload; knowledge is supplied as temporary context.
+This makes document-based answers possible and provides inspectable provenance.
+It does not eliminate hallucinations or repair missing/incorrect retrieval.
+
+### Important code
+
+- `ai/llm.py` defines a small `LLMProvider` protocol and typed `GeneratedAnswer`.
+- `ai/ollama.py` implements non-streaming `/api/chat`, with separate system/user
+  roles and a JSON schema for `answer` and `citation_labels`. It uses temperature
+  0, an 8192-token context setting, and a 512-token output limit. This reduces
+  variation but does not guarantee determinism or correctness.
+- `services/rag.py` retrieves five matches, snapshots plain source data, releases
+  the database read transaction, builds the prompt, calls generation, and resolves
+  citation labels. Database connections are not held while waiting for the LLM.
+- `api/questions.py` defines the public response and translates that service result
+  into JSON. Generation failures are mapped to safe 502 responses by the app.
+
+The context builder caps excerpt text at 5000 characters, assigning `S1`, `S2`,
+and so on in retrieval order. A shortened excerpt is explicitly marked truncated.
+Question, labels, and sources are serialized as JSON in the user message; the
+system message says source content is untrusted data and must not be followed as
+instructions. A concrete output example shows both inline `[S1]` markers and the
+matching label array. See [Ollama chat and structured outputs](https://github.com/ollama/ollama/blob/main/docs/api.md).
+
+### Citation and failure contracts
+
+The backend checks that the answer's `[S<number>]` markers match its declared
+citation labels and that every label belongs to the actual supplied context.
+The model never creates the source UUIDs; the backend resolves them. Unknown or
+mismatched references produce a 502 rather than being displayed as a valid answer.
+Structured schema errors, provider failures/timeouts, incomplete generation, and
+output-limit truncation also produce useful 502 errors without internal responses.
+
+If retrieval produces no source excerpts, the LLM is not called. If the model
+returns no citation labels, its uncited text is discarded. Both cases return
+HTTP 200 with `status: insufficient_evidence`, a fixed explanation, and no
+citations. `status: answered` means generation passed the citation contract;
+it is not a verified-groundedness score. This is a minimal safety baseline;
+retrieval relevance thresholds and more robust refusal behaviour remain Milestone 7.
+
+Citation validity is not citation correctness: a referenced passage can exist and
+still fail to support a claim. We do not currently check every claim for semantic
+entailment. Prompt isolation also does not prove immunity to prompt injection.
+These limitations must be assessed with the Milestone 8 evaluation dataset.
+
+### Context windows and limitations
+
+An LLM context window limits the tokens it can consider, including instructions,
+the question, evidence, and output. The 5000-character excerpt cap bounds common
+inputs but is not an exact token budget: code and Unicode tokenize differently.
+Tokenizer-aware budgeting and context selection are later quality work. The small
+1B model is a convenient local baseline, and can fail citation formatting or
+reasoning; provider/model changes can be compared during evaluation.
+
+Each question is independent. There is no chat memory, streaming, agent, document
+filter, reranker, duplicate-context removal, or configurable retrieval count in
+this milestone. Source documents still need the explicit indexing step before
+asking questions. Original document permissions are outside the single-user MVP.
+
+### Verification and interview points
+
+All 111 tests passed, including 24 PostgreSQL integration cases. New tests cover
+HTTP provider request/response contracts, malformed/incomplete output, citation
+matching, context limits, no-source behaviour, suppression of uncited text, and
+real database source-reference resolution. Most tests use deterministic providers
+so ordinary checks require neither a model server nor probabilistic answers.
+
+A separate real HTTP check used the local embedding and chat models plus a
+disposable PostgreSQL database. It uploaded transaction documentation, indexed it,
+asked how to undo changes, and received a ROLLBACK answer with `[S1]` resolving to
+the stored source text. An initial model response omitted the inline marker;
+validation rejected it. Adding an explicit output-format example resolved that
+case while keeping validation strict. This is a smoke check, not a RAG-quality
+benchmark. The test API and disposable database were cleaned up.
+
+For interviews, trace the whole pipeline and identify each failure mode: poor
+retrieval, lost context, unsupported generation, invalid citations, and provider
+errors. Explain that prompt engineering includes instructions, evidence boundaries,
+output examples, and response contracts, while backend validation enforces only
+what can be checked deterministically. RAG supplies evidence; it does not make a
+model inherently truthful.
