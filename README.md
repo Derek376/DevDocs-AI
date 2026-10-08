@@ -3,9 +3,11 @@
 A technical documentation assistant that retrieves relevant passages from uploaded
 documents and uses a language model to produce answers with source citations.
 
-**Status:** Milestone 5 — basic RAG complete. Uploaded and indexed documents can
-now answer questions through a local LLM, with source chunk citations resolved by
-the backend. Frontend, retrieval tuning, and quality evaluation remain later milestones.
+**Status:** Milestone 6 — React frontend complete. The browser workspace supports
+upload, indexing, document browsing, independent questions, answers, and expandable
+source citations. Retrieval tuning and quality evaluation remain later milestones.
+The local 1B model can still fail citation formatting; those answers are rejected
+and shown as useful errors rather than accepted as grounded responses.
 This project is built one milestone at a time, with explanations and verification
 before continuing.
 
@@ -209,7 +211,24 @@ DevDocs AI/
 │       └── integration/
 │           └── test_database.py
 └── frontend/
-    └── .gitkeep
+    ├── package.json         # dev, build, lint, and test commands
+    ├── package-lock.json    # exact npm dependency versions
+    ├── index.html           # browser entry point
+    ├── vite.config.ts       # React, API proxy, and Vitest configuration
+    ├── tsconfig.json        # strict TypeScript checks
+    ├── eslint.config.js     # TypeScript and React rules
+    └── src/
+        ├── main.tsx         # React root and StrictMode
+        ├── App.tsx          # workspace composition
+        ├── api.ts           # typed HTTP requests and safe errors
+        ├── styles.css       # responsive styles and focus states
+        ├── components/
+        │   ├── DocumentPanel.tsx
+        │   ├── QuestionPanel.tsx
+        │   └── AnswerCard.tsx
+        ├── App.test.tsx     # user workflows
+        ├── api.test.ts      # HTTP boundary cases
+        └── test/setup.ts    # DOM matchers and cleanup
 ```
 
 Planned backend layout, created only as each part becomes necessary:
@@ -227,7 +246,6 @@ backend/
 └── migrations/
 ```
 
-Frontend source layout will be chosen when Vite is scaffolded in Milestone 6.
 CI workflows and evaluation data arrive in their own milestones.
 Compose currently runs the database only; application containers arrive later.
 Prefer small modules and simple functions/classes; do not introduce a generic
@@ -276,8 +294,8 @@ files, logs, screenshots, or frontend configuration.
 
 ## Development and verification
 
-Prerequisites: Python 3.12–3.14, [uv](https://docs.astral.sh/uv/), and Docker
-with Compose. Docker Desktop must be running for database commands.
+Prerequisites: Python 3.12–3.14, [uv](https://docs.astral.sh/uv/), Node.js
+22.12+ (verified with Node 24), npm, and Docker with Compose. Docker Desktop must be running for database commands.
 The backend is an application, not a published Python package. Commands below
 run from `backend/`; uv manages its ignored `.venv` directory. The checked-in
 lockfile pins resolved versions; `--locked` rejects stale dependency metadata.
@@ -327,7 +345,7 @@ Tests use FastAPI's in-process `TestClient`; no network server is needed. They
 check the health response and OpenAPI contract, configuration defaults and source
 precedence, rejection of invalid environments, and settings supplied to the
 application factory. Fixtures isolate tests from developer environment settings.
-No frontend build or Python package build exists at this milestone.
+Frontend checks are documented below. The backend is not built as a Python package.
 
 Without `TEST_DATABASE_URL`, 24 database integration cases are explicitly skipped;
 87 non-integration tests still run. To exercise all 111 tests against the local
@@ -823,3 +841,119 @@ errors. Explain that prompt engineering includes instructions, evidence boundari
 output examples, and response contracts, while backend validation enforces only
 what can be checked deterministically. RAG supplies evidence; it does not make a
 model inherently truthful.
+
+
+## Browser workspace — Milestone 6
+
+The frontend is a small React + TypeScript application built with Vite. It uses
+component-local state and a single HTTP module; no global state library, router,
+UI framework, or AI SDK is needed for this one-page interface.
+
+### Run the interface
+
+Start the database, apply migrations, and run the backend as described above.
+For actual generation, Ollama must be running with the embedding and chat models
+from Milestones 4–5. In a separate terminal, from the repository root:
+
+```sh
+cd frontend
+npm ci
+npm run dev
+```
+
+Open [DevDocs AI](http://127.0.0.1:5173/). From `frontend/`, run:
+
+```sh
+npm test
+npm run lint
+npm run build
+# Optional: inspect the production bundle locally (backend still required).
+npm run preview
+```
+
+Vite forwards `/api/*` to `http://127.0.0.1:8000`, removing the `/api` prefix.
+The browser sees same-origin requests, so this local setup needs no backend CORS
+change. Preview inherits the proxy; it is a local bundle check, not a production
+hosting solution. A production host will need equivalent routing for `/api`.
+See [Vite proxy configuration](https://vite.dev/config/server-options.html#server-proxy).
+No frontend environment variables or secrets are required. Browser-visible
+configuration cannot safely hold database passwords or provider credentials.
+
+### Upload and indexing are two operations
+
+“Upload and index” first saves the document through `POST /documents`, then calls
+`POST /documents/{id}/index`. Progress distinguishes extraction from embedding.
+If indexing fails, the saved document remains in the library and can be retried
+with “Index for search”. Re-indexing does not upload another document.
+
+The list API does not expose persistent embedding status. Therefore `ready` is
+shown as “Text ready”, and “Indexed this session” appears only after this browser
+has observed successful indexing. Reloading resets those badges; it does not
+remove database vectors. Existing documents may already be searchable. The list
+uses server pagination in groups of 20, refresh, empty states, and load retries.
+With no total count in the API, a completely full final page can lead to an empty
+next page; Previous remains available.
+
+Client checks give quick feedback for unsupported extensions, empty files, and
+files above the default 10 MiB limit. They are convenience checks, not a security
+boundary. The backend still validates actual content and enforces its configured
+limits. If the backend upload limit changes, update the UI limit and help text.
+
+### Important React and API concepts
+
+- `App.tsx` composes the document and question panels; each owns its local state.
+- `DocumentPanel.tsx` keeps upload/index actions in event handlers. Its effect
+  synchronizes the library with the selected page. `AbortController` cleanup and
+  an aborted-signal check prevent obsolete requests from changing the displayed
+  page. React StrictMode exercises effect cleanup during development.
+- `QuestionPanel.tsx` uses a controlled textarea: React state is the displayed
+  value. Submission trims the question, prevents duplicate pending submissions,
+  clears the prior result, and records which question produced the new answer.
+  Loading state disables inputs and explains that local generation can be slow.
+- `api.ts` mirrors backend response types, sends multipart uploads using
+  `FormData`, and parses FastAPI's string or validation-list errors. The browser
+  must supply multipart boundaries. TypeScript helps catch contract mistakes at
+  build time; the type assertions are not runtime response-schema validation.
+- `AnswerCard.tsx` resolves `[S1]` markers against returned citations. Clicking a
+  marker opens the corresponding source and focuses its summary. Excerpts show
+  filename, human-readable chunk number, PDF page when available, and truncation.
+  Plain React text rendering escapes model/document HTML; no HTML injection or
+  Markdown renderer is used. Code and Markdown remain readable raw text.
+- Native labels, buttons, disclosure elements, live status messages, alerts, and
+  visible focus styles support keyboard and assistive-technology use. The layout
+  stacks on narrow screens and requires no external fonts or media.
+
+`insufficient_evidence` is an ordinary answer outcome, displayed without invented
+citations. Network/provider failures are errors with retry guidance. Generated
+text and retrieved evidence have separate labels; neither a valid reference nor
+an “answered” status proves that every claim is supported. Each question remains
+independent, and the UI displays the latest result without conversation memory.
+
+### Verification and limits
+
+All 20 frontend tests passed, covering upload/index success, partial failure and
+retry without another upload, validation, document-load recovery, pagination and
+cancellation, pending question state, insufficient evidence, provider retry,
+citation navigation, and safe HTML rendering. HTTP tests cover multipart fields,
+question JSON, error variants, network failures, and cancellation. Tests use
+Vitest, jsdom, and Testing Library, exercising observable user behaviour rather
+than CSS snapshots. Lint and the TypeScript/Vite production build passed. All
+111 backend tests, including 24 real PostgreSQL integration cases, also passed.
+
+A browser check uploaded and indexed transaction documentation using real FastAPI,
+PostgreSQL/pgvector and Ollama embeddings. Two questions to `llama3.2:1b` returned
+invalid citation references; strict backend validation rejected them, and the UI
+displayed the useful error and allowed retry. Successful answer rendering and
+source navigation were then verified through the same HTTP/retrieval pipeline
+with a temporary deterministic LLM substitute. This validates frontend wiring;
+it does not demonstrate reliable live generation. Desktop (1280px) and mobile
+(390px) checks showed no horizontal overflow. Disposable test databases and the
+test generation adapter were removed after verification.
+
+For interviews, explain why upload and indexing need separate failure states,
+why frontend validation cannot replace server validation, and why asynchronous
+responses can race. Trace a user action through React, HTTP, FastAPI, retrieval,
+generation, and citation rendering. Distinguish a recoverable provider failure
+from an insufficient-evidence result, and explain why deterministic UI tests and
+probabilistic RAG evaluation answer different questions. Quality improvements
+remain Milestone 7; evaluation remains Milestone 8.
