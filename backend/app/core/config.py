@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -28,6 +28,18 @@ class Settings(BaseSettings):
     postgres_db: str = Field(default="devdocs", min_length=1)
     postgres_user: str = Field(default="devdocs", min_length=1)
     postgres_password: SecretStr | None = Field(default=None, min_length=1)
+
+    max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    max_extracted_chars: int = Field(default=1_000_000, ge=1)
+    max_pdf_pages: int = Field(default=200, ge=1)
+    chunk_size: int = Field(default=1000, ge=100, le=10_000)
+    chunk_overlap: int = Field(default=150, ge=0)
+
+    @model_validator(mode="after")
+    def validate_chunk_overlap(self) -> "Settings":
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError("CHUNK_OVERLAP must be smaller than CHUNK_SIZE.")
+        return self
 
     @property
     def database_url(self) -> URL:

@@ -3,9 +3,10 @@
 A technical documentation assistant that retrieves relevant passages from uploaded
 documents and uses a language model to produce answers with source citations.
 
-**Status:** Milestone 2 — PostgreSQL + pgvector foundation complete. The backend
-has liveness/readiness endpoints, a database connection, document/chunk models,
-and migrations. Uploads, embeddings, and AI integration are not implemented yet.
+**Status:** Milestone 3 — document ingestion complete. The backend validates
+text, Markdown, and PDF uploads, extracts text, and stores metadata and chunks.
+Documents and source chunks can be inspected through the API. Embeddings and
+AI integration are not implemented yet.
 This project is built one milestone at a time, with explanations and verification
 before continuing.
 
@@ -164,20 +165,32 @@ DevDocs AI/
 │   │   ├── main.py          # create_app factory
 │   │   ├── api/
 │   │   │   ├── __init__.py
-│   │   │   └── health.py    # route and response schema
+│   │   │   ├── health.py    # liveness/readiness routes
+│   │   │   ├── documents.py # upload and inspection routes
+│   │   │   └── document_schemas.py
 │   │   ├── core/
 │   │   │   ├── __init__.py
 │   │   │   └── config.py    # typed environment settings
+│   │   ├── services/
+│   │   │   ├── __init__.py
+│   │   │   ├── ingestion.py
+│   │   │   ├── extraction.py
+│   │   │   ├── chunking.py
+│   │   │   └── document_errors.py
 │   │   └── persistence/
 │   │       ├── __init__.py
 │   │       ├── database.py # connection pool and request sessions
-│   │       └── models.py   # document and chunk tables
+│   │       ├── models.py   # document and chunk tables
+│   │       └── documents.py # persistence queries
 │   └── tests/
 │       ├── conftest.py
 │       ├── test_health.py
 │       ├── test_config.py
 │       ├── test_database_config.py
 │       ├── test_readiness.py
+│       ├── test_chunking.py
+│       ├── test_extraction.py
+│       ├── test_document_api.py
 │       └── integration/
 │           └── test_database.py
 └── frontend/
@@ -223,6 +236,11 @@ directory. Copy `.env.example` to `.env` if you want to change defaults.
 | `POSTGRES_DB` | `devdocs` | Database name. |
 | `POSTGRES_USER` | `devdocs` | Local database user. |
 | `POSTGRES_PASSWORD` | unset | Required for database setup; set a nonempty local value. |
+| `MAX_UPLOAD_BYTES` | `10485760` | Maximum file content size: 10 MiB. |
+| `MAX_EXTRACTED_CHARS` | `1000000` | Maximum extracted document characters. |
+| `MAX_PDF_PAGES` | `200` | Maximum PDF page count. |
+| `CHUNK_SIZE` | `1000` | Characters per chunk; valid range 100–10000. |
+| `CHUNK_OVERLAP` | `150` | Repeated characters; must be nonnegative and smaller than chunk size. |
 
 `APP_ENV` does not automatically enable production security or change logging.
 Logging and provider settings will be added when needed. Configuration
@@ -289,8 +307,8 @@ precedence, rejection of invalid environments, and settings supplied to the
 application factory. Fixtures isolate tests from developer environment settings.
 No frontend build or Python package build exists at this milestone.
 
-Without `TEST_DATABASE_URL`, 12 database integration cases are explicitly skipped;
-16 non-integration tests still run. To exercise all 28 tests against the local
+Without `TEST_DATABASE_URL`, 18 database integration cases are explicitly skipped;
+52 non-integration tests still run. To exercise all 70 tests against the local
 Compose database, run this from `backend/` (it reads `.env` without printing the
 password):
 
@@ -313,7 +331,8 @@ and drop databases and enable pgvector. Each integration case creates a uniquely
 named disposable database and drops only that database after the test. Cases
 verify extension availability, migration downgrade/reapply, model/schema
 agreement, persistence, constraints, cascade deletion, readiness, and request
-session commit/rollback. SQLite cannot validate these PostgreSQL-specific features.
+session commit/rollback, upload-to-chunk persistence, pagination, and atomic
+rollback on failed chunk writes. SQLite cannot validate these PostgreSQL-specific features.
 
 Milestone 2 verification: all 28 tests passed on Python 3.14.7 with PostgreSQL 17
 and pgvector 0.8.2; Ruff lint/format checks and `alembic check` passed.
@@ -329,7 +348,7 @@ and [uv projects](https://docs.astral.sh/uv/guides/projects/).
 | 0 | Requirements, MVP scope, architecture, repository skeleton | Complete |
 | 1 | FastAPI, health endpoint, configuration, pytest foundation | Complete |
 | 2 | Compose database, PostgreSQL + pgvector, models, migrations | Complete |
-| 3 | Validated uploads, text extraction, metadata, chunking | Planned |
+| 3 | Validated uploads, text extraction, metadata, chunking | Complete |
 | 4 | Embeddings, vector persistence, semantic retrieval | Planned |
 | 5 | Basic RAG pipeline with source citations | Planned |
 | 6 | React upload, document list, questions, answers, and sources | Planned |
@@ -348,8 +367,8 @@ questions. Definitions, scoring, and results arrive in Milestone 8.
 
 ## Limitations and future work
 
-The backend currently exposes health, database readiness, and generated API
-documentation. The MVP scope excludes scanned PDFs and multi-user access. Model context limits, provider cost/latency, upload processing
+The backend exposes document ingestion/inspection, health, database readiness,
+and generated API documentation. It does not yet answer questions or embed text. The MVP scope excludes scanned PDFs and multi-user access. Model context limits, provider cost/latency, upload processing
 time, prompt injection, and retrieval quality will inform later decisions.
 Local models are a future provider option; none is selected or installed now.
 
@@ -443,3 +462,103 @@ See [Alembic's async migration recipe](https://alembic.sqlalchemy.org/en/latest/
 - **Connection pool vs session:** the pool reuses connections; a session tracks one
   unit of work. Async I/O lets the server handle other requests while waiting for SQL.
 - **Scope:** no uploads, vector column, embedding provider, or semantic search yet.
+
+
+## Document ingestion — Milestone 3
+
+| Method and path | Behaviour |
+| --- | --- |
+| `POST /documents` | Multipart field `file`; extracts and saves a document and its chunks; returns metadata with HTTP 201. |
+| `GET /documents` | Metadata and chunk counts, newest first; `limit` (1–100, default 20) and `offset` (default 0). |
+| `GET /documents/{id}/chunks` | Source chunk IDs, text, positions, and PDF pages, ordered by position; same pagination parameters. |
+
+With the API running, from the repository root:
+
+```sh
+curl -F 'file=@README.md;type=text/markdown' http://127.0.0.1:8000/documents
+curl 'http://127.0.0.1:8000/documents?limit=20&offset=0'
+# Replace DOCUMENT_UUID with the id returned by the upload:
+curl 'http://127.0.0.1:8000/documents/DOCUMENT_UUID/chunks?limit=100'
+```
+
+Upload responses contain `id`, `filename`, canonical `media_type`, `size_bytes`,
+`status`, timestamps, and `chunk_count`. Chunk responses contain `id`,
+`document_id`, zero-based `position`, `text`, and one-based `source_page` (null for
+text/Markdown). A status of `ready` currently means text ingestion is complete;
+it does not mean embeddings exist or the document is searchable yet.
+
+### Validation and error behaviour
+
+The server rejects filenames containing paths or controls, unsupported extensions,
+conflicting declared MIME types, empty/whitespace-only documents, invalid UTF-8,
+and unsupported text controls. UTF-8 BOMs are accepted and newlines are normalized;
+Markdown syntax, code indentation, and Unicode text are preserved. Extensions
+and MIME types are hints: validation also checks the contents. Generic
+`application/octet-stream` is accepted when the supported extension/content match.
+
+PDF validation checks the header, parseability, encryption, page count, readable
+text, and extracted-text limits. The parser additionally rejects pages whose
+decoded content stream exceeds 5 MiB before text extraction. Blank pages are
+skipped while retaining original page numbers. Encrypted, corrupt, and PDFs with
+no readable text are rejected. There is no OCR; text order in multi-column PDFs
+and tables depends on the parser and may be imperfect.
+See [pypdf text extraction](https://pypdf.readthedocs.io/en/stable/user/extract-text.html).
+
+| Status | Meaning |
+| --- | --- |
+| 400 | Empty, unreadable, corrupt, encrypted, or otherwise invalid content/filename. |
+| 413 | File, extracted text, PDF page count, or decoded page stream exceeds a limit. |
+| 415 | Unsupported extension or conflicting type/content. |
+| 404 | Requested document does not exist. |
+| 422 | Missing multipart field or invalid UUID/pagination. |
+| 503 | Database is unconfigured or a database operation failed. |
+
+Rejected uploads create no rows. Successful metadata and all chunks are committed
+in one transaction; a database failure rolls the transaction back. Since ingestion
+finishes within the request, this milestone does not persist intermediate
+`processing` or rejected `failed` rows. Duplicate uploads intentionally create
+separate documents; deduplication is deferred.
+
+### Chunking and async processing decisions
+
+`chunk_sections()` uses character windows. For size 1000 and overlap 150, the
+first window starts at 0, the next at 850, and so on. The final chunk may be
+shorter; it does not emit an unnecessary tail containing only overlap. Empty
+windows are omitted. PDF pages are chunked separately so a chunk has one precise
+source page. This loses some context across page boundaries, a trade-off to
+revisit during retrieval evaluation.
+
+Smaller chunks focus the evidence but may separate a concept from its explanation.
+Larger chunks retain context but may dilute relevance and use more LLM context.
+Overlap reduces boundary loss while increasing repeated text and storage.
+Character count is not token count: a tokenizer may represent code or Unicode
+with different numbers of tokens. Fixed windows can split sentences and code
+blocks; structural/token-aware splitting is a later quality improvement.
+Chunk settings currently come from configuration and are not recorded per document.
+
+The API reads at most `MAX_UPLOAD_BYTES + 1` file bytes to detect oversized files,
+then closes the upload handle. FastAPI's multipart parser may spool the incoming
+upload before the handler runs: this is a file-processing limit, not a total HTTP
+body/network limit. Public deployment needs an upstream request-size limit.
+See [FastAPI file uploads](https://fastapi.tiangolo.com/tutorial/request-files/).
+
+The service runs extraction and chunking in a worker thread, then uses the async
+SQLAlchemy session for persistence. This keeps blocking parsing off the request
+event loop; it does not make PDF parsing faster or create a durable background job.
+PDF limits reduce ordinary resource use but cannot guarantee a hard CPU/memory
+bound during decompression/parsing. Process isolation/time limits are future work
+before accepting hostile public uploads. Original files are not retained; only
+metadata and extracted chunks are stored.
+
+### Verification and interview notes
+
+Milestone 3 verification: all 70 tests passed, including 18 PostgreSQL integration
+cases; Ruff lint and formatting passed. New checks cover overlap/tail handling,
+code indentation, PDF pages/encryption/limits, invalid uploads, exact upload-size
+boundaries, stored metadata/chunks, pagination, and database-write rollback.
+
+Explain the ingestion flow as: validate → extract → chunk → atomically persist.
+Keep HTTP error translation in API routes, orchestration in the ingestion service,
+pure extraction/chunking functions in services, and SQL queries in persistence.
+Stable chunk IDs and PDF page references prepare us for source citations; they do
+not yet prove an answer is grounded. Embeddings and retrieval begin in Milestone 4.
