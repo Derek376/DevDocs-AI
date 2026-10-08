@@ -3,10 +3,9 @@
 A technical documentation assistant that retrieves relevant passages from uploaded
 documents and uses a language model to produce answers with source citations.
 
-**Status:** Milestone 3 — document ingestion complete. The backend validates
-text, Markdown, and PDF uploads, extracts text, and stores metadata and chunks.
-Documents and source chunks can be inspected through the API. Embeddings and
-AI integration are not implemented yet.
+**Status:** Milestone 4 — embeddings and semantic search complete. Documents can
+be uploaded, explicitly indexed with local Ollama embeddings, and searched using
+pgvector cosine distance. Generated answers and LLM integration wait for Milestone 5.
 This project is built one milestone at a time, with explanations and verification
 before continuing.
 
@@ -141,9 +140,11 @@ UUIDs provide stable source identifiers independent of filename or text changes.
 `updated_at` is refreshed by SQLAlchemy updates, not a database trigger; direct SQL
 writers must set it themselves.
 
-Embeddings, model/chunking metadata, vector dimensions, and similarity indexes
-will be added in their own milestones. Enabling pgvector now does not generate
-embeddings or make the current text rows semantically searchable.
+Each chunk now has a nullable `embedding` vector and `embedding_model` identifier.
+Migration `0002` preserves existing text with null embedding fields; the explicit
+indexing endpoint fills them. A database constraint requires both fields to be
+present or both absent. Chunking metadata and approximate indexes remain future
+work. Source text and identifiers are unchanged by re-indexing.
 
 ## Directory structure
 
@@ -167,7 +168,12 @@ DevDocs AI/
 │   │   │   ├── __init__.py
 │   │   │   ├── health.py    # liveness/readiness routes
 │   │   │   ├── documents.py # upload and inspection routes
-│   │   │   └── document_schemas.py
+│   │   │   ├── document_schemas.py
+│   │   │   └── search.py    # index and semantic retrieval routes
+│   │   ├── ai/
+│   │   │   ├── __init__.py
+│   │   │   ├── embeddings.py # provider contract and vector validation
+│   │   │   └── ollama.py     # local embedding adapter
 │   │   ├── core/
 │   │   │   ├── __init__.py
 │   │   │   └── config.py    # typed environment settings
@@ -176,12 +182,14 @@ DevDocs AI/
 │   │   │   ├── ingestion.py
 │   │   │   ├── extraction.py
 │   │   │   ├── chunking.py
-│   │   │   └── document_errors.py
+│   │   │   ├── document_errors.py
+│   │   │   └── search.py     # indexing and retrieval orchestration
 │   │   └── persistence/
 │   │       ├── __init__.py
 │   │       ├── database.py # connection pool and request sessions
 │   │       ├── models.py   # document and chunk tables
-│   │       └── documents.py # persistence queries
+│   │       ├── documents.py # persistence queries
+│   │       └── search.py    # pgvector cosine query
 │   └── tests/
 │       ├── conftest.py
 │       ├── test_health.py
@@ -191,6 +199,8 @@ DevDocs AI/
 │       ├── test_chunking.py
 │       ├── test_extraction.py
 │       ├── test_document_api.py
+│       ├── test_embeddings.py
+│       ├── test_search_api.py
 │       └── integration/
 │           └── test_database.py
 └── frontend/
@@ -241,6 +251,11 @@ directory. Copy `.env.example` to `.env` if you want to change defaults.
 | `MAX_PDF_PAGES` | `200` | Maximum PDF page count. |
 | `CHUNK_SIZE` | `1000` | Characters per chunk; valid range 100–10000. |
 | `CHUNK_OVERLAP` | `150` | Repeated characters; must be nonnegative and smaller than chunk size. |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Server called by the backend; the default keeps text local. |
+| `EMBEDDING_MODEL` | `embeddinggemma` | Dedicated embedding model downloaded through Ollama. |
+| `EMBEDDING_DIMENSIONS` | `768` | Expected output size; mismatches reject indexing/search. |
+| `EMBEDDING_BATCH_SIZE` | `32` | Number of chunks per model request, valid range 1–128. |
+| `EMBEDDING_TIMEOUT_SECONDS` | `120` | Timeout per model request. |
 
 `APP_ENV` does not automatically enable production security or change logging.
 Logging and provider settings will be added when needed. Configuration
@@ -307,8 +322,8 @@ precedence, rejection of invalid environments, and settings supplied to the
 application factory. Fixtures isolate tests from developer environment settings.
 No frontend build or Python package build exists at this milestone.
 
-Without `TEST_DATABASE_URL`, 18 database integration cases are explicitly skipped;
-52 non-integration tests still run. To exercise all 70 tests against the local
+Without `TEST_DATABASE_URL`, 21 database integration cases are explicitly skipped;
+69 non-integration tests still run. To exercise all 90 tests against the local
 Compose database, run this from `backend/` (it reads `.env` without printing the
 password):
 
@@ -349,7 +364,7 @@ and [uv projects](https://docs.astral.sh/uv/guides/projects/).
 | 1 | FastAPI, health endpoint, configuration, pytest foundation | Complete |
 | 2 | Compose database, PostgreSQL + pgvector, models, migrations | Complete |
 | 3 | Validated uploads, text extraction, metadata, chunking | Complete |
-| 4 | Embeddings, vector persistence, semantic retrieval | Planned |
+| 4 | Embeddings, vector persistence, semantic retrieval | Complete |
 | 5 | Basic RAG pipeline with source citations | Planned |
 | 6 | React upload, document list, questions, answers, and sources | Planned |
 | 7 | Retrieval settings, filters, context cleanup, insufficient-evidence handling | Planned |
@@ -368,7 +383,8 @@ questions. Definitions, scoring, and results arrive in Milestone 8.
 ## Limitations and future work
 
 The backend exposes document ingestion/inspection, health, database readiness,
-and generated API documentation. It does not yet answer questions or embed text. The MVP scope excludes scanned PDFs and multi-user access. Model context limits, provider cost/latency, upload processing
+and generated API documentation. It embeds text and returns retrieved evidence,
+but does not yet generate answers. The MVP scope excludes scanned PDFs and multi-user access. Model context limits, provider cost/latency, upload processing
 time, prompt injection, and retrieval quality will inform later decisions.
 Local models are a future provider option; none is selected or installed now.
 
@@ -485,7 +501,8 @@ Upload responses contain `id`, `filename`, canonical `media_type`, `size_bytes`,
 `status`, timestamps, and `chunk_count`. Chunk responses contain `id`,
 `document_id`, zero-based `position`, `text`, and one-based `source_page` (null for
 text/Markdown). A status of `ready` currently means text ingestion is complete;
-it does not mean embeddings exist or the document is searchable yet.
+it does not mean embeddings exist. Indexing is a separate request in Milestone 4;
+only indexed chunks for the currently configured model are searched.
 
 ### Validation and error behaviour
 
@@ -562,3 +579,115 @@ Keep HTTP error translation in API routes, orchestration in the ingestion servic
 pure extraction/chunking functions in services, and SQL queries in persistence.
 Stable chunk IDs and PDF page references prepare us for source citations; they do
 not yet prove an answer is grounded. Embeddings and retrieval begin in Milestone 4.
+
+
+## Embeddings and semantic search — Milestone 4
+
+The first real provider is local Ollama with `embeddinggemma` (768-dimensional
+vectors). Ollama was already installed on the development machine; its dedicated
+embedding model was downloaded and verified. On a new machine, install/start
+Ollama, then prepare the model and migrate the database:
+
+```sh
+ollama pull embeddinggemma
+cd backend
+uv sync --locked
+uv run --locked alembic upgrade head
+uv run --locked uvicorn app.main:create_app --factory --reload
+```
+
+Ollama normally serves on port 11434. If using its CLI without a running service,
+start `ollama serve` in a separate terminal. No API key is required for this local
+adapter. Configuring a remote base URL sends document text/questions to that
+server; the default URL uses loopback. See [Ollama embeddings](https://docs.ollama.com/capabilities/embeddings).
+
+After uploading, use the returned document UUID:
+
+```sh
+curl -X POST http://127.0.0.1:8000/documents/DOCUMENT_UUID/index
+curl -X POST http://127.0.0.1:8000/search \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"How can I undo database changes after an error?"}'
+```
+
+`POST /documents/{id}/index` returns the document UUID, embedded chunk count,
+model identifier, and dimensions. It also works for documents uploaded before
+Milestone 4. It processes chunks in ordered batches and replaces embeddings only
+after every batch succeeds, in one transaction. An existing document with a
+failed re-index retains its previous embeddings. Re-indexing deliberately replaces
+all vectors, rather than assuming unchanged text means a provider/model is unchanged.
+There is one embedding per chunk, not an embedding history.
+
+`POST /search` embeds the question and returns up to five closest chunks, ordered
+by cosine distance. Each match contains the chunk/document UUIDs, filename, chunk
+position, optional PDF page, source text, and similarity. Search returns an empty
+list when no compatible indexed chunks exist. Questions must contain text and
+be at most 2000 characters. Configurable retrieval counts, document filters, and
+minimum evidence thresholds wait for Milestone 7. This route returns retrieved
+sources only; there is no generated answer or RAG prompt yet.
+
+### Important code and design decisions
+
+- `ai/embeddings.py`: a small `EmbeddingProvider` protocol exposes model identity,
+  dimensions, and `embed(texts)`. Business logic does not import an Ollama SDK.
+- `ai/ollama.py`: an async HTTP adapter sends batches to `/api/embed` with
+  `truncate=false`, rejecting overlong input rather than silently dropping text.
+- The FastAPI lifespan owns and closes one pooled HTTP client. It does not load
+  the model or require Ollama during health checks or text uploads.
+- `services/search.py`: snapshots source data, ends the read transaction before
+  waiting on the model, validates all batches, and then performs atomic writes.
+- `persistence/search.py`: joins documents and chunks and uses pgvector's cosine
+  operator. It excludes null vectors, non-ready documents, other model identifiers,
+  and other dimensions. It keeps source identifiers for later RAG citations.
+
+Provider responses are checked for vector count, dimensions, numerical/finite
+values, representable magnitudes, and nonzero vectors. Vectors are normalized to
+unit length before float32 storage; this preserves direction and avoids storing
+underflowed tiny vectors as zeros. Provider HTTP/timeouts/malformed responses are
+translated into useful 502 errors without exposing response internals. Database
+failures remain 503. Missing documents return 404. No placeholder/hash embeddings
+are used in runtime code; known vectors exist only in tests.
+
+The `vector` column intentionally has no fixed dimension. This allows a later
+model with a different dimension without changing the column type; search still
+filters for the configured dimension and model. Same dimension alone does not
+make models compatible. Changing the model requires re-indexing every document.
+The stored identity is `ollama:MODEL_NAME`; if weights behind a mutable model tag
+change, re-index all documents before searching. Silent tag changes are not
+automatically detected. An external provider can implement the same protocol;
+no external API adapter is installed yet.
+
+Exact search compares every compatible indexed vector and is appropriate for the
+initial corpus. HNSW/IVFFlat indexes trade speed, memory, and recall and should be
+introduced with measurements. A dimension-flexible column would require carefully
+scoped/cast indexes for each model/dimension. See [pgvector Python SQLAlchemy support](https://github.com/pgvector/pgvector-python#sqlalchemy).
+
+### Interview explanation
+
+An embedding is a learned numerical representation of text. A query such as
+"undo changes after an error" can be close to a passage about transaction rollback,
+even if the wording differs. This is semantic search, whereas keyword search
+primarily matches words. The model determines what meaning is represented;
+storing a vector does not create that meaning.
+
+For vectors **a** and **b**, cosine similarity is their dot product divided by the
+product of their lengths: `dot(a, b) / (norm(a) * norm(b))`. It measures alignment
+of directions and ranges from -1 to 1. pgvector returns cosine **distance**;
+we expose `similarity = 1 - distance`. Higher values are closer, but they are not
+probabilities or proof that the passage answers the question. Top-ranked matches
+can still be irrelevant; insufficient-evidence handling and evaluation come later.
+
+### Verification
+
+All 90 automated tests passed, including 21 PostgreSQL cases. HTTP mock tests
+check provider requests, batch ordering, timeouts, and malformed responses.
+Database tests verify cosine ordering with known vectors, compatibility filtering,
+atomic failed-batch behaviour, and migration preservation. These deterministic
+tests validate engineering behaviour; they do not measure a real model's quality.
+
+A separate real HTTP check uploaded three documents, generated local Ollama
+768-dimensional embeddings, stored them in pgvector, and queried a rollback
+question. Transaction documentation ranked first (similarity approximately 0.529),
+ahead of Docker (0.205) and React (0.186). This is a smoke check, not an evaluation
+benchmark. The disposable verification database and API process were removed;
+the development database migration preserves existing uploads.
