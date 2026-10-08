@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.ai.embeddings import EmbeddingError
 from app.ai.llm import LLMError
 from app.ai.ollama import OllamaEmbeddingProvider, OllamaLLMProvider
+from app.ai.openai import OpenAILLMProvider
 from app.api.documents import router as documents_router
 from app.api.health import router as health_router
 from app.api.questions import router as questions_router
@@ -30,7 +31,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = None
         client = httpx.AsyncClient(trust_env=False)
         app.state.embedding_provider = OllamaEmbeddingProvider(settings, client)
-        app.state.llm_provider = OllamaLLMProvider(settings, client)
+        app.state.llm_provider = (
+            OpenAILLMProvider(settings, client)
+            if settings.llm_provider == "openai"
+            else OllamaLLMProvider(settings, client)
+        )
         app.state.session_factory = None
         if settings.postgres_password is not None:
             engine = create_database_engine(settings)

@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -40,8 +40,18 @@ class Settings(BaseSettings):
     embedding_dimensions: int = Field(default=768, ge=1, le=16000)
     embedding_batch_size: int = Field(default=32, ge=1, le=128)
     embedding_timeout_seconds: float = Field(default=120, gt=0, le=600)
+    llm_provider: Literal["ollama", "openai"] = "ollama"
     llm_model: str = Field(default="llama3.2:1b", min_length=1, max_length=200)
     llm_timeout_seconds: float = Field(default=120, gt=0, le=600)
+    openai_api_key: SecretStr | None = None
+
+    @field_validator("openai_api_key", mode="before")
+    @classmethod
+    def normalize_empty_api_key(cls, value: object) -> object:
+        # Allow an empty example value; report missing credentials on generation.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def validate_chunk_overlap(self) -> "Settings":

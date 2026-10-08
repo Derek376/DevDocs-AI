@@ -6,8 +6,9 @@ documents and uses a language model to produce answers with source citations.
 **Status:** Milestone 6 — React frontend complete. The browser workspace supports
 upload, indexing, document browsing, independent questions, answers, and expandable
 source citations. Retrieval tuning and quality evaluation remain later milestones.
-The local 1B model can still fail citation formatting; those answers are rejected
-and shown as useful errors rather than accepted as grounded responses.
+Answer generation now supports OpenAI `gpt-5.4-mini` alongside local Ollama.
+Citation validation remains strict for both providers; invalid references are
+shown as useful errors rather than accepted as grounded responses.
 This project is built one milestone at a time, with explanations and verification
 before continuing.
 
@@ -177,6 +178,7 @@ DevDocs AI/
 │   │   │   ├── __init__.py
 │   │   │   ├── embeddings.py # provider contract and vector validation
 │   │   │   ├── ollama.py     # local embedding and generation adapters
+│   │   │   ├── openai.py     # external Responses API generation adapter
 │   │   │   └── llm.py        # generation contract and structured output
 │   │   ├── core/
 │   │   │   ├── __init__.py
@@ -207,6 +209,7 @@ DevDocs AI/
 │       ├── test_embeddings.py
 │       ├── test_search_api.py
 │       ├── test_llm.py
+│       ├── test_openai_llm.py
 │       ├── test_rag.py
 │       └── integration/
 │           └── test_database.py
@@ -279,7 +282,9 @@ directory. Copy `.env.example` to `.env` if you want to change defaults.
 | `EMBEDDING_DIMENSIONS` | `768` | Expected output size; mismatches reject indexing/search. |
 | `EMBEDDING_BATCH_SIZE` | `32` | Number of chunks per model request, valid range 1–128. |
 | `EMBEDDING_TIMEOUT_SECONDS` | `120` | Timeout per embedding request. |
-| `LLM_MODEL` | `llama3.2:1b` | Local chat model, separate from the embedding model. |
+| `LLM_PROVIDER` | `ollama` | Generation adapter: `ollama` or `openai`; the example environment selects `openai`. |
+| `LLM_MODEL` | `llama3.2:1b` | Generation model; use `gpt-5.4-mini` with OpenAI. |
+| `OPENAI_API_KEY` | unset | Backend-only secret for OpenAI generation; blank is treated as missing. |
 | `LLM_TIMEOUT_SECONDS` | `120` | Timeout per answer-generation request. |
 
 `APP_ENV` does not automatically enable production security or change logging.
@@ -348,7 +353,7 @@ application factory. Fixtures isolate tests from developer environment settings.
 Frontend checks are documented below. The backend is not built as a Python package.
 
 Without `TEST_DATABASE_URL`, 24 database integration cases are explicitly skipped;
-87 non-integration tests still run. To exercise all 111 tests against the local
+118 non-integration tests still run. To exercise all 142 tests against the local
 Compose database, run this from `backend/` (it reads `.env` without printing the
 password):
 
@@ -733,7 +738,8 @@ flowchart LR
     V --> A[Generated answer and separate source evidence]
 ```
 
-The local generation adapter uses the already-installed `llama3.2:1b` model. For
+The original Milestone 5 local baseline uses `llama3.2:1b`. OpenAI generation
+was added afterwards; see the provider-switch instructions below. For
 another machine, run `ollama pull llama3.2:1b` alongside the embedding model setup.
 The generation and embedding providers use independent interfaces and model
 settings; replacing one does not require changing the other. No new dependency
@@ -852,8 +858,8 @@ UI framework, or AI SDK is needed for this one-page interface.
 ### Run the interface
 
 Start the database, apply migrations, and run the backend as described above.
-For actual generation, Ollama must be running with the embedding and chat models
-from Milestones 4–5. In a separate terminal, from the repository root:
+Ollama must be running with the embedding model from Milestone 4. Configure
+OpenAI generation below, or use the local chat-model alternative from Milestone 5. In a separate terminal, from the repository root:
 
 ```sh
 cd frontend
@@ -957,3 +963,69 @@ generation, and citation rendering. Distinguish a recoverable provider failure
 from an insufficient-evidence result, and explain why deterministic UI tests and
 probabilistic RAG evaluation answer different questions. Quality improvements
 remain Milestone 7; evaluation remains Milestone 8.
+
+
+## Switch answer generation to OpenAI
+
+The official model ID is `gpt-5.4-mini` (hyphens and a dot). The safe example
+environment selects OpenAI; the code defaults retain the offline Ollama baseline
+for developers who do not copy that file. In the ignored root `.env`, set:
+
+```dotenv
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-5.4-mini
+OPENAI_API_KEY=your-own-api-key
+LLM_TIMEOUT_SECONDS=120
+```
+
+Replace the placeholder locally. Do not paste your key into chat, frontend code,
+README examples, screenshots, or Git. Environment variables override `.env`.
+Restart the backend after changing settings:
+
+```sh
+cd backend
+uv run --locked uvicorn app.main:create_app --factory --reload
+```
+
+The existing frontend works without changes. The backend calls OpenAI's Responses
+API using the existing shared asynchronous `httpx` client, so no new SDK or
+lockfile change is needed. The adapter requests a strict JSON schema matching
+`GeneratedAnswer`, uses `reasoning.effort: none` and a 1024-token output cap, and
+sets `store: false`. It checks completion, refusal, message content, and the
+returned schema before returning the same provider-independent result.
+
+Retrieved source labels and inline markers are still checked by `services/rag.py`.
+Structured outputs constrain response shape; they do not guarantee matching
+citation references or supported claims. No automatic repair retries or silent
+fallback to Ollama are added. A missing key gives a useful question error while
+allowing document upload and liveness checks to work. Authentication, model
+access, quota/rate limits, transport errors, refusals and incomplete generation
+also have safe error messages; raw provider responses and credentials are not
+returned to the browser.
+
+**Data flow:** embeddings still run locally through Ollama. Questions and the
+retrieved source excerpts are sent to OpenAI for generation, with API usage billed
+to your API account. `store: false` disables response storage through the Responses
+API; it does not make the request local or override OpenAI's other data-handling
+policies. Do not upload documents you are not permitted to send to that provider.
+
+Changing only the generation model requires no new document embeddings. Changing
+the embedding model would require re-indexing, because vector coordinates belong
+to that model's embedding space. To return to local generation, set
+`LLM_PROVIDER=ollama` and `LLM_MODEL=llama3.2:1b`, then restart the backend.
+
+New mocked-HTTP tests exercise the request schema/authentication, mixed output
+items, status/error variants, refusals, malformed output, missing credentials,
+secret masking, and app provider selection. They use dummy keys and make no paid
+requests. All 142 backend tests (including 24 PostgreSQL integration cases),
+Ruff lint, and formatting checks passed after this change. A live OpenAI answer
+must be checked after configuring your own key;
+mocked tests do not prove account access or RAG answer quality.
+
+For interviews, this is a concrete example of dependency inversion: the RAG
+service depends on `LLMProvider`, not a particular vendor. Only the application
+composition and provider adapter know whether generation is local or remote.
+Embeddings, retrieval, persistence, and the frontend retain their contracts.
+
+Sources: [GPT-5.4 Mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini),
+[structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
