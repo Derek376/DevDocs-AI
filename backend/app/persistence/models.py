@@ -1,8 +1,9 @@
-"""Document metadata and text chunks; embeddings arrive in Milestone 4."""
+"""Document metadata, source chunks, and replaceable-model embeddings."""
 
 from datetime import datetime
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -53,6 +54,10 @@ class Chunk(Base):
         CheckConstraint("position >= 0", name="ck_chunks_position_nonnegative"),
         CheckConstraint("length(text) > 0", name="ck_chunks_text_nonempty"),
         CheckConstraint("source_page >= 1", name="ck_chunks_source_page_positive"),
+        CheckConstraint(
+            "(embedding IS NULL) = (embedding_model IS NULL)",
+            name="ck_chunks_embedding_pair",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -62,6 +67,8 @@ class Chunk(Base):
     position: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
     source_page: Mapped[int | None] = mapped_column(Integer)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector())
+    embedding_model: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

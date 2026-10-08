@@ -4,7 +4,7 @@ import os
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Annotated
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 import pytest
@@ -21,6 +21,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from app.ai.embeddings import EmbeddingError
+from app.api.search import get_embedding_provider
 from app.core.config import Settings
 from app.main import create_app
 from app.persistence.database import get_session
@@ -83,7 +85,7 @@ def test_migration_round_trip_extension_and_model_agreement(
     with database_engine.connect() as connection:
         assert connection.scalar(text("SELECT '[1,2,3]'::vector::text")) == "[1,2,3]"
         assert (
-            connection.scalar(text("SELECT version_num FROM alembic_version")) == "0001"
+            connection.scalar(text("SELECT version_num FROM alembic_version")) == "0002"
         )
         assert (
             compare_metadata(MigrationContext.configure(connection), Base.metadata)
@@ -290,3 +292,137 @@ def test_failed_chunk_write_rolls_back_document_and_returns_safe_error(
     with database_engine.connect() as connection:
         assert connection.scalar(text("SELECT count(*) FROM documents")) == 0
         assert connection.scalar(text("SELECT count(*) FROM chunks")) == 0
+
+
+class KnownVectorProvider:
+    """Test geometry with known vectors; this is not a real semantic model."""
+
+    model_id = "test:known-vectors"
+    dimensions = 2
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        return [
+            [1.0, 0.0]
+            if "database" in value.lower() or "postgres" in value.lower()
+            else [0.0, 1.0]
+            for value in texts
+        ]
+
+
+def test_index_and_cosine_search_exclude_unindexed_and_incompatible_chunks(
+    database_engine: Engine,
+) -> None:
+    app = create_app(settings_for(database_engine))
+    app.dependency_overrides[get_embedding_provider] = lambda: KnownVectorProvider()
+    with TestClient(app) as client:
+        ids = []
+        for filename, content in [
+            ("db.txt", b"Database transaction documentation"),
+            ("ui.txt", b"UI button styles"),
+            ("unindexed.txt", b"Database secrets"),
+        ]:
+            response = client.post(
+                "/documents", files={"file": (filename, content, "text/plain")}
+            )
+            ids.append(response.json()["id"])
+        assert (
+            client.post("/search", json={"question": "postgres"}).json()["matches"]
+            == []
+        )
+        for document_id in ids[:2]:
+            result = client.post(f"/documents/{document_id}/index")
+            assert result.status_code == 200, result.text
+            assert result.json()["embedded_chunk_count"] == 1
+        # Same model with a different vector dimension, and another model, are excluded.
+        with Session(database_engine) as session:
+            document = session.get(Document, UUID(ids[0]))
+            session.add_all(
+                [
+                    Chunk(
+                        document_id=document.id,
+                        position=1,
+                        text="Wrong dimensions",
+                        embedding=[1, 0, 0],
+                        embedding_model=KnownVectorProvider.model_id,
+                    ),
+                    Chunk(
+                        document_id=document.id,
+                        position=2,
+                        text="Wrong model",
+                        embedding=[1, 0],
+                        embedding_model="test:other-model",
+                    ),
+                ]
+            )
+            session.commit()
+        matches = client.post("/search", json={"question": "postgres"}).json()[
+            "matches"
+        ]
+        assert [row["document_id"] for row in matches] == ids[:2]
+        assert [row["similarity"] for row in matches] == pytest.approx([1, 0])
+        assert matches[0]["filename"] == "db.txt"
+        assert matches[0]["text"] == "Database transaction documentation"
+        assert client.post(f"/documents/{uuid4()}/index").status_code == 404
+
+
+def test_failed_batch_keeps_previous_embeddings(database_engine: Engine) -> None:
+    settings = settings_for(database_engine)
+    settings.embedding_batch_size = 1
+    app = create_app(settings)
+    app.dependency_overrides[get_embedding_provider] = lambda: KnownVectorProvider()
+    with TestClient(app) as client:
+        response = client.post(
+            "/documents",
+            files={"file": ("guide.txt", b"database " * 150, "text/plain")},
+        )
+        document_id = response.json()["id"]
+        assert client.post(f"/documents/{document_id}/index").status_code == 200
+
+        class FailingProvider(KnownVectorProvider):
+            model_id = "test:new-model"
+            calls = 0
+
+            async def embed(self, texts):
+                self.calls += 1
+                if self.calls == 2:
+                    raise EmbeddingError("Simulated second-batch failure.")
+                return [[0, 1]]
+
+        provider = FailingProvider()
+        app.dependency_overrides[get_embedding_provider] = lambda: provider
+        assert client.post(f"/documents/{document_id}/index").status_code == 502
+    with Session(database_engine) as session:
+        chunks = session.scalars(
+            select(Chunk).where(Chunk.document_id == UUID(document_id))
+        ).all()
+        assert len(chunks) == 2
+        assert all(
+            chunk.embedding_model == KnownVectorProvider.model_id for chunk in chunks
+        )
+        assert all(list(chunk.embedding) == [1, 0] for chunk in chunks)
+
+
+def test_embedding_migration_preserves_existing_text(database_engine: Engine) -> None:
+    migrate(database_engine, "downgrade", "0001")
+    document_id, chunk_id = uuid4(), uuid4()
+    with database_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO documents (id, filename, media_type, size_bytes) "
+                "VALUES (:id, 'old.txt', 'text/plain', 3)"
+            ),
+            {"id": document_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO chunks (id, document_id, position, text) "
+                "VALUES (:id, :document_id, 0, 'old')"
+            ),
+            {"id": chunk_id, "document_id": document_id},
+        )
+    migrate(database_engine, "upgrade", "head")
+    with Session(database_engine) as session:
+        chunk = session.get(Chunk, chunk_id)
+        assert chunk.text == "old"
+        assert chunk.embedding is None
+        assert chunk.embedding_model is None

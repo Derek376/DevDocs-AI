@@ -1,0 +1,100 @@
+"""Embedding indexing and semantic retrieval endpoints."""
+
+from typing import Annotated
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.ai.embeddings import EmbeddingProvider
+from app.api.documents import SessionDependency
+from app.services.search import DocumentNotFoundError, index_document, search_documents
+
+router = APIRouter(tags=["search"])
+
+
+def get_embedding_provider(request: Request) -> EmbeddingProvider:
+    return request.app.state.embedding_provider
+
+
+ProviderDependency = Annotated[EmbeddingProvider, Depends(get_embedding_provider)]
+
+
+class IndexResponse(BaseModel):
+    document_id: UUID
+    embedded_chunk_count: int
+    model: str
+    dimensions: int
+
+
+class SearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("question")
+    @classmethod
+    def clean_question(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Question must contain non-whitespace text.")
+        return value.strip()
+
+
+class SearchMatch(BaseModel):
+    chunk_id: UUID
+    document_id: UUID
+    filename: str
+    position: int
+    source_page: int | None
+    text: str
+    similarity: float
+
+
+class SearchResponse(BaseModel):
+    model: str
+    matches: list[SearchMatch]
+
+
+@router.post("/documents/{document_id}/index")
+async def index(
+    document_id: UUID,
+    request: Request,
+    session: SessionDependency,
+    provider: ProviderDependency,
+) -> IndexResponse:
+    try:
+        count = await index_document(
+            session,
+            document_id,
+            provider,
+            request.app.state.settings.embedding_batch_size,
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return IndexResponse(
+        document_id=document_id,
+        embedded_chunk_count=count,
+        model=provider.model_id,
+        dimensions=provider.dimensions,
+    )
+
+
+@router.post("/search")
+async def search(
+    body: SearchRequest, session: SessionDependency, provider: ProviderDependency
+) -> SearchResponse:
+    rows = await search_documents(session, body.question, provider, limit=5)
+    return SearchResponse(
+        model=provider.model_id,
+        matches=[
+            SearchMatch(
+                chunk_id=chunk.id,
+                document_id=chunk.document_id,
+                filename=filename,
+                position=chunk.position,
+                source_page=chunk.source_page,
+                text=chunk.text,
+                similarity=similarity,
+            )
+            for chunk, filename, similarity in rows
+        ],
+    )

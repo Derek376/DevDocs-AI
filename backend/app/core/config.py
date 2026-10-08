@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     chunk_size: int = Field(default=1000, ge=100, le=10_000)
     chunk_overlap: int = Field(default=150, ge=0)
 
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    embedding_model: str = Field(default="embeddinggemma", min_length=1, max_length=200)
+    embedding_dimensions: int = Field(default=768, ge=1, le=16000)
+    embedding_batch_size: int = Field(default=32, ge=1, le=128)
+    embedding_timeout_seconds: float = Field(default=120, gt=0, le=600)
+
     @model_validator(mode="after")
     def validate_chunk_overlap(self) -> "Settings":
         if self.chunk_overlap >= self.chunk_size:

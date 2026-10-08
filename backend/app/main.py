@@ -3,13 +3,17 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.ai.embeddings import EmbeddingError
+from app.ai.ollama import OllamaEmbeddingProvider
 from app.api.documents import router as documents_router
 from app.api.health import router as health_router
+from app.api.search import router as search_router
 from app.core.config import Settings
 from app.persistence.database import create_database_engine
 
@@ -22,6 +26,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = None
+        client = httpx.AsyncClient(trust_env=False)
+        app.state.embedding_provider = OllamaEmbeddingProvider(settings, client)
         app.state.session_factory = None
         if settings.postgres_password is not None:
             engine = create_database_engine(settings)
@@ -31,6 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await client.aclose()
             if engine is not None:
                 await engine.dispose()
 
@@ -38,6 +45,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.include_router(health_router)
     app.include_router(documents_router)
+    app.include_router(search_router)
+
+    @app.exception_handler(EmbeddingError)
+    async def embedding_error(request: Request, exc: EmbeddingError) -> JSONResponse:
+        return JSONResponse(status_code=502, content={"detail": str(exc)})
 
     @app.exception_handler(SQLAlchemyError)
     async def database_error(request: Request, exc: SQLAlchemyError) -> JSONResponse:
