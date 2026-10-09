@@ -24,16 +24,19 @@ export interface Citation {
   position: number
   source_page: number | null
   text: string
-  similarity: number
+  similarity: number | null
   truncated: boolean
 }
 
 export interface Answer {
   answer: string
-  status: 'answered' | 'insufficient_evidence'
+  status: 'answered' | 'insufficient_evidence' | 'metadata' | 'selection_required'
   citations: Citation[]
   llm_model: string
   embedding_model: string
+  tool?: 'retrieve_documentation' | 'inspect_document_metadata' | 'summarize_document'
+  document?: Document | null
+  context_truncated?: boolean
 }
 
 // Treat error responses as untrusted input; FastAPI detail can be text or a list.
@@ -137,4 +140,12 @@ export function messageFor(error: unknown): string {
   return error instanceof Error
     ? error.message
     : 'Something went wrong. Please try again.'
+}
+
+export function askAgent(question: string, selectedDocumentId?: string): Promise<Answer> {
+  return request('/agent/questions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, selected_document_id: selectedDocumentId ?? null }),
+  })
 }

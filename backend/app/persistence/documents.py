@@ -55,3 +55,17 @@ async def list_chunks(
         .offset(offset)
     )
     return list(result)
+
+
+async def get_document_metadata(
+    session: AsyncSession, document_id: UUID
+) -> tuple[Document, int] | None:
+    row = (
+        await session.execute(
+            select(Document, func.count(Chunk.id))
+            .outerjoin(Chunk, Chunk.document_id == Document.id)
+            .where(Document.id == document_id)
+            .group_by(Document.id)
+        )
+    ).first()
+    return (row[0], row[1]) if row else None

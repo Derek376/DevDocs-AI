@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { askQuestion, listDocuments, uploadDocument } from './api'
+import { askAgent, askQuestion, listDocuments, uploadDocument } from './api'
 
 const fetchMock = vi.fn<typeof fetch>()
 afterEach(() => fetchMock.mockReset())
@@ -109,4 +109,18 @@ it('sends retrieval options with the question', async () => {
       }),
     }),
   )
+})
+
+
+it('sends assistant requests with the explicit selection and no caller-controlled tool', async () => {
+  respond({ status: 'metadata', citations: [] })
+  await askAgent('Show metadata', 'doc-1')
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/agent/questions', expect.objectContaining({
+    body: JSON.stringify({ question: 'Show metadata', selected_document_id: 'doc-1' }),
+  }))
+  respond({ status: 'answered', citations: [] })
+  await askAgent('Question')
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/agent/questions', expect.objectContaining({
+    body: JSON.stringify({ question: 'Question', selected_document_id: null }),
+  }))
 })

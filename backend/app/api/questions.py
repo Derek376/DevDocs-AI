@@ -31,7 +31,7 @@ class CitationResponse(BaseModel):
     position: int
     source_page: int | None
     text: str
-    similarity: float
+    similarity: float | None
     truncated: bool
 
 

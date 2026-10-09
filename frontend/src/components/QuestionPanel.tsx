@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { askQuestion, messageFor } from '../api'
+import { askAgent, askQuestion, messageFor } from '../api'
 import type { Answer, Document, MediaType, RetrievalOptions } from '../api'
 import AnswerCard from './AnswerCard'
 
@@ -11,6 +11,7 @@ export default function QuestionPanel({
   selectedDocument: Document | null
   onClearDocument: () => void
 }) {
+  const [assistantMode, setAssistantMode] = useState(false)
   const [question, setQuestion] = useState('')
   const [submittedQuestion, setSubmittedQuestion] = useState('')
   const [answer, setAnswer] = useState<Answer | null>(null)
@@ -23,7 +24,7 @@ export default function QuestionPanel({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const trimmed = question.trim()
-    const count = topK === '' ? undefined : Number(topK)
+    const count = assistantMode || topK === '' ? undefined : Number(topK)
     if (
       !trimmed ||
       trimmed.length > 2000 ||
@@ -41,10 +42,12 @@ export default function QuestionPanel({
     setAnswer(null)
     setSubmittedQuestion(trimmed)
     setSubmittedScope(
-      `${selectedDocument?.filename ?? 'All documents'} · ${mediaType ? { 'text/plain': 'Text', 'text/markdown': 'Markdown', 'application/pdf': 'PDF' }[mediaType] : 'All formats'}`,
+      `${selectedDocument?.filename ?? 'All documents'} · ${assistantMode ? 'Assistant mode' : mediaType ? { 'text/plain': 'Text', 'text/markdown': 'Markdown', 'application/pdf': 'PDF' }[mediaType] : 'All formats'}`,
     )
     try {
-      setAnswer(await askQuestion(trimmed, options))
+      setAnswer(assistantMode
+        ? await askAgent(trimmed, selectedDocument?.id)
+        : await askQuestion(trimmed, options))
     } catch (error) {
       setError(messageFor(error))
     } finally {
@@ -78,6 +81,21 @@ export default function QuestionPanel({
             </button>
           )}
         </div>
+        <label htmlFor="answer-mode">Assistant mode</label>
+        <select
+          id="answer-mode"
+          value={assistantMode ? 'agent' : 'rag'}
+          disabled={busy}
+          onChange={(event) => setAssistantMode(event.target.value === 'agent')}
+        >
+          <option value="rag">Documentation Q&amp;A</option>
+          <option value="agent">Choose a documentation tool</option>
+        </select>
+        {assistantMode && <p className="muted">
+          Ask a technical question, request document metadata, or ask for a summary.
+          Select a document in the library for metadata or a summary.
+          Retrieval uses the server's default limits.
+        </p>}
         <div className="retrieval-controls">
           <div>
             <label htmlFor="top-k">Maximum source chunks</label>
@@ -87,9 +105,9 @@ export default function QuestionPanel({
               min={1}
               max={20}
               step={1}
-              value={topK}
+              value={assistantMode ? '' : topK}
               onChange={(event) => setTopK(event.target.value)}
-              disabled={busy}
+              disabled={busy || assistantMode}
               placeholder="Server default"
               aria-describedby="retrieval-help"
             />
@@ -98,11 +116,11 @@ export default function QuestionPanel({
             <label htmlFor="media-type">Document format</label>
             <select
               id="media-type"
-              value={mediaType}
+              value={assistantMode ? '' : mediaType}
               onChange={(event) =>
                 setMediaType(event.target.value as MediaType | '')
               }
-              disabled={busy}
+              disabled={busy || assistantMode}
             >
               <option value="">All formats</option>
               <option value="text/plain">Text</option>
@@ -128,7 +146,7 @@ export default function QuestionPanel({
         />
         <div className="question-actions">
           <p id="question-help" className="muted">
-            Each question searches indexed documents in the selected scope.
+            {assistantMode ? 'The assistant chooses one read-only tool.' : 'Each question searches indexed documents in the selected scope.'}
             <br />
             No conversation memory · {question.length}/2000
           </p>
@@ -139,8 +157,7 @@ export default function QuestionPanel({
       </form>
       {busy && (
         <p role="status" className="progress">
-          Retrieving passages and drafting an answer. Generation may take a
-          moment…
+          {assistantMode ? 'Choosing a tool and preparing the result…' : 'Retrieving passages and drafting an answer. Generation may take a moment…'}
         </p>
       )}
       {error && (

@@ -493,3 +493,12 @@ button[aria-pressed='true'] {
     align-items: start;
   }
 }
+
+
+.document-metadata {
+  display: grid;
+  grid-template-columns: minmax(6rem, 1fr) minmax(0, 2fr);
+  gap: 0.5rem 1rem;
+}
+.document-metadata dt { font-weight: 600; }
+.document-metadata dd { margin: 0; overflow-wrap: anywhere; }

@@ -1,9 +1,19 @@
 """OpenAI HTTP adapters; retrieval and citation validation stay in the service."""
 
+import json
+from uuid import UUID
+
 import httpx
 
 from app.ai.embeddings import EmbeddingError, validate_vectors
 from app.ai.llm import GeneratedAnswer, LLMError
+from app.ai.tools import (
+    ROUTER_PROMPT,
+    TOOL_NAMES,
+    ToolArguments,
+    ToolCall,
+    tool_definitions,
+)
 from app.core.config import Settings
 
 
@@ -92,7 +102,84 @@ class OpenAILLMProvider:
         self.client = client
         self.timeout = settings.llm_timeout_seconds
 
+    async def choose_tool(self, question: str, document_id: UUID | None) -> ToolCall:
+        data = await self._request(
+            {
+                "input": [
+                    {"role": "system", "content": ROUTER_PROMPT},
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "question": question,
+                                "selected_document_id": str(document_id)
+                                if document_id
+                                else None,
+                            }
+                        ),
+                    },
+                ],
+                "tools": tool_definitions(),
+                "tool_choice": "required",
+                "parallel_tool_calls": False,
+            }
+        )
+        try:
+            output = data["output"]
+            if not isinstance(output, list):
+                raise ValueError("Invalid output")
+            # No prose or extra tool may bypass the bounded decision contract.
+            calls = [item for item in output if item.get("type") != "reasoning"]
+            if len(calls) != 1:
+                raise ValueError("Expected exactly one tool")
+            call = calls[0]
+            if (
+                call.get("type") != "function_call"
+                or call.get("status") != "completed"
+                or call.get("name") not in TOOL_NAMES
+            ):
+                raise ValueError("Invalid tool")
+            call_id = call.get("call_id")
+            if not isinstance(call_id, str) or not call_id or len(call_id) > 256:
+                raise ValueError("Invalid call ID")
+            arguments = ToolArguments.model_validate_json(call["arguments"])
+            return ToolCall(call["name"], arguments, call_id)
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise LLMError(
+                "OpenAI returned an invalid tool choice. Please retry."
+            ) from exc
+
+    async def complete_tool(
+        self, question: str, call: ToolCall, output: dict, system_prompt: str
+    ) -> GeneratedAnswer:
+        return await self._generate(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": question},
+                {
+                    "type": "function_call",
+                    "name": call.name,
+                    "call_id": call.call_id,
+                    "arguments": call.arguments.model_dump_json(),
+                    "status": "completed",
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": call.call_id,
+                    "output": json.dumps(output, ensure_ascii=False, default=str),
+                },
+            ]
+        )
+
     async def generate(self, system_prompt: str, user_prompt: str) -> GeneratedAnswer:
+        return await self._generate(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+
+    async def _request(self, payload: dict) -> dict:
         if self.api_key is None:
             raise LLMError(
                 "OpenAI is not configured. Set OPENAI_API_KEY in the root .env "
@@ -104,21 +191,10 @@ class OpenAILLMProvider:
                 headers={"Authorization": f"Bearer {self.api_key.get_secret_value()}"},
                 json={
                     "model": self.model,
-                    "input": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "text": {
-                        "format": {
-                            "type": "json_schema",
-                            "name": "grounded_answer",
-                            "strict": True,
-                            "schema": GeneratedAnswer.model_json_schema(),
-                        }
-                    },
                     "reasoning": {"effort": "none"},
                     "max_output_tokens": 1024,
                     "store": False,
+                    **payload,
                 },
                 timeout=self.timeout,
             )
@@ -152,6 +228,27 @@ class OpenAILLMProvider:
                     "OpenAI returned an incomplete or failed answer. "
                     "Try a more focused question or retry."
                 )
+            return data
+        except (ValueError, TypeError) as exc:
+            raise LLMError(
+                "OpenAI returned an invalid answer format. Please retry."
+            ) from exc
+
+    async def _generate(self, input_items: list[dict]) -> GeneratedAnswer:
+        data = await self._request(
+            {
+                "input": input_items,
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": "grounded_answer",
+                        "strict": True,
+                        "schema": GeneratedAnswer.model_json_schema(),
+                    }
+                },
+            }
+        )
+        try:
             output = data.get("output")
             if not isinstance(output, list):
                 raise ValueError("Expected output items")

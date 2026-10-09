@@ -3,11 +3,12 @@
 A technical documentation assistant that retrieves relevant passages from uploaded
 documents and uses a language model to produce answers with source citations.
 
-**Status:** Milestone 9 — production engineering complete. Backend/frontend images,
-ordered Docker Compose startup, CI, structured request logging and safe errors are
-implemented and locally verified. The project remains a local single-user MVP.
-See [production setup and decisions](docs/production.md) and the
-[evaluation baseline](evaluation/README.md).
+**Status:** Milestone 10 — simple AI agent extension complete. The optional assistant
+uses GPT-5.4 mini to choose one read-only tool: documentation retrieval, verified
+metadata, or a cited summary of a selected document. Ordinary RAG remains the
+default. See [the agent guide and design decisions](docs/agent.md),
+[production setup](docs/production.md), and [the historical evaluation baseline](evaluation/README.md).
+The project remains a local single-user MVP.
 This project is built one milestone at a time, with explanations and verification
 before continuing.
 
@@ -50,7 +51,8 @@ intended for public deployment with private documents.
 
 OCR for scanned PDFs, website crawling, document editing/deletion, streaming,
 hybrid search, reranking, and distributed ingestion workers are outside the MVP.
-Tool calling is reserved for Milestone 10. A simple RAG system comes first.
+A simple, bounded tool-using assistant was added in Milestone 10 after the RAG
+pipeline. It performs one read-only operation per request; see the agent guide.
 
 ### Acceptance criteria
 
@@ -178,12 +180,14 @@ DevDocs AI/
 │   │   │   ├── documents.py # upload and inspection routes
 │   │   │   ├── document_schemas.py
 │   │   │   ├── search.py    # index and semantic retrieval routes
-│   │   │   └── questions.py # RAG answer and citation contracts
+│   │   │   ├── questions.py # RAG answer and citation contracts
+│   │   │   └── agent.py     # optional tool-using assistant
 │   │   ├── ai/
 │   │   │   ├── __init__.py
 │   │   │   ├── embeddings.py # provider contract and vector validation
 │   │   │   ├── openai.py     # embedding and Responses API adapters
-│   │   │   └── llm.py        # generation contract and structured output
+│   │   │   ├── llm.py        # generation contract and structured output
+│   │   │   └── tools.py      # tool names, schemas and provider contract
 │   │   ├── core/
 │   │   │   ├── __init__.py
 │   │   │   ├── config.py    # typed environment settings
@@ -196,7 +200,8 @@ DevDocs AI/
 │   │   │   ├── chunking.py
 │   │   │   ├── document_errors.py
 │   │   │   ├── search.py     # indexing and retrieval orchestration
-│   │   │   └── rag.py        # context, prompt, generation, citation resolution
+│   │   │   ├── rag.py        # context, prompt, generation, citation resolution
+│   │   │   └── agent.py      # one validated read-only operation
 │   │   └── persistence/
 │   │       ├── __init__.py
 │   │       ├── database.py # connection pool and request sessions
@@ -214,7 +219,10 @@ DevDocs AI/
 │       ├── test_document_api.py
 │       ├── test_embeddings.py
 │       ├── test_search_api.py
-│       ├── test_llm.py
+│       ├── test_openai_embeddings.py
+│       ├── test_openai_tools.py
+│       ├── test_agent.py
+│       ├── test_agent_api.py
 │       ├── test_openai_llm.py
 │       ├── test_rag.py
 │       ├── test_retrieval_quality.py
@@ -373,8 +381,8 @@ precedence, rejection of invalid environments, and settings supplied to the
 application factory. Fixtures isolate tests from developer environment settings.
 Frontend checks are documented below. The backend is not built as a Python package.
 
-Without `TEST_DATABASE_URL`, 27 database integration cases are explicitly skipped;
-187 non-integration tests still run. To exercise all 214 tests against the local
+Without `TEST_DATABASE_URL`, 30 database integration cases are explicitly skipped;
+233 non-integration tests still run. To exercise all 263 tests against the local
 Compose database, run this from `backend/` (it reads `.env` without printing the
 password):
 
@@ -1222,3 +1230,18 @@ The [production guide](docs/production.md) explains setup, host/container addres
 request IDs, privacy-aware logs, safe errors, meaningful tests, CI jobs and their
 limitations. CI is configured and statically validated; GitHub-hosted execution
 will occur after a push or pull request. No deployment or agent was added.
+
+
+## AI agent extension — Milestone 10
+
+Choose **Choose a documentation tool** under **Assistant mode** in the question
+panel. Ask a technical question, request metadata, or summarize a selected
+document. The new `POST /agent/questions` endpoint performs one validated tool
+choice; metadata is shown as database facts, while generated answers and summaries
+retain source citations. Large summaries explicitly show partial coverage.
+
+See [the agent guide](docs/agent.md) for the normal LLM/RAG/tool-calling/agent
+comparison, request examples, execution bounds, important code, tests, exact file
+manifest, limitations and interview talking points. OpenAI remains the only
+runtime provider. No new dependency or schema migration is needed. Milestone 11
+portfolio polish has not started.

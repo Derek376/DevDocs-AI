@@ -18,6 +18,7 @@ vi.mock('./api', async (importOriginal) => ({
   uploadDocument: vi.fn(),
   indexDocument: vi.fn(),
   askQuestion: vi.fn(),
+  askAgent: vi.fn(),
 }))
 
 const document: Document = {
@@ -51,6 +52,7 @@ const result: Answer = {
 }
 
 beforeEach(() => {
+  vi.mocked(api.askAgent).mockReset()
   vi.mocked(api.listDocuments).mockReset().mockResolvedValue([])
   vi.mocked(api.uploadDocument).mockReset().mockResolvedValue(document)
   vi.mocked(api.indexDocument).mockReset().mockResolvedValue({
@@ -375,4 +377,62 @@ it('keeps the scope of a displayed answer when the next question scope changes',
   expect(
     screen.getByRole('button', { name: 'Use for questions: other.md' }),
   ).toHaveAttribute('aria-pressed', 'true')
+})
+
+
+it('uses assistant mode to inspect selected document metadata without showing it as generated evidence', async () => {
+  const user = userEvent.setup()
+  vi.mocked(api.listDocuments).mockResolvedValue([document])
+  vi.mocked(api.askAgent).mockResolvedValue({
+    ...result, status: 'metadata', citations: [],
+    answer: 'Document metadata loaded from the database.',
+    tool: 'inspect_document_metadata', document, context_truncated: false,
+  })
+  render(<App />)
+  await user.click(await screen.findByRole('button', { name: 'Use for questions: transactions.md' }))
+  await user.selectOptions(screen.getByLabelText('Assistant mode'), 'agent')
+  expect(screen.getByLabelText('Maximum source chunks')).toBeDisabled()
+  expect(screen.getByLabelText('Document format')).toBeDisabled()
+  await user.type(screen.getByLabelText('Your question'), 'What is this document size?')
+  await user.click(screen.getByRole('button', { name: /Ask question/ }))
+  expect(await screen.findByRole('heading', { name: 'Document metadata' })).toBeInTheDocument()
+  expect(screen.getByText('Verified database fields')).toBeInTheDocument()
+  expect(screen.getByText('200')).toBeInTheDocument()
+  expect(api.askAgent).toHaveBeenCalledWith('What is this document size?', document.id)
+  expect(api.askQuestion).not.toHaveBeenCalled()
+  expect(screen.queryByRole('heading', { name: 'Retrieved evidence' })).not.toBeInTheDocument()
+})
+
+it('shows partial summary coverage, source links and the original tool after switching modes', async () => {
+  const user = userEvent.setup()
+  vi.mocked(api.askAgent).mockResolvedValue({
+    ...result, tool: 'summarize_document', context_truncated: true,
+    citations: [{ ...result.citations[0], similarity: null }],
+  })
+  render(<App />)
+  await user.selectOptions(screen.getByLabelText('Assistant mode'), 'agent')
+  await user.type(screen.getByLabelText('Your question'), 'Summarize this document')
+  await user.click(screen.getByRole('button', { name: /Ask question/ }))
+  await screen.findByRole('heading', { name: 'Generated answer' })
+  expect(within(screen.getByRole('article')).getByRole('status')).toHaveTextContent('Partial summary')
+  expect(screen.getByRole('heading', { name: /Document excerpts/ })).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Show source S1' }))
+  expect(screen.getByText(result.citations[0].text).closest('details')!.open).toBe(true)
+  await user.selectOptions(screen.getByLabelText('Assistant mode'), 'rag')
+  expect(screen.getByText('Action used: Summarize document')).toBeInTheDocument()
+})
+
+it('requests a selection when metadata or summary has no selected document', async () => {
+  const user = userEvent.setup()
+  vi.mocked(api.askAgent).mockResolvedValue({
+    ...result, status: 'selection_required', citations: [],
+    answer: 'Select a document from the library, then ask again.',
+    tool: 'summarize_document',
+  })
+  render(<App />)
+  await user.selectOptions(screen.getByLabelText('Assistant mode'), 'agent')
+  await user.type(screen.getByLabelText('Your question'), 'Summarize a document')
+  await user.click(screen.getByRole('button', { name: /Ask question/ }))
+  expect(await screen.findByRole('heading', { name: 'Select a document' })).toBeInTheDocument()
+  expect(api.askAgent).toHaveBeenCalledWith('Summarize a document', undefined)
 })

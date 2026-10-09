@@ -730,3 +730,78 @@ def test_rag_fetches_past_duplicates_to_fill_useful_source_slots(
         assert result.status_code == 200, result.text
         assert result.json()["citations"][0]["document_id"] == ids[2]
         assert result.json()["citations"][0]["label"] == "S2"
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        "retrieve_documentation",
+        "inspect_document_metadata",
+        "summarize_document",
+    ],
+)
+def test_agent_tools_through_api_and_real_persistence(
+    database_engine: Engine, tool: str
+) -> None:
+    from app.ai.tools import ToolArguments, ToolCall
+    from app.api.agent import get_tool_provider
+
+    class Embeddings:
+        model_id = "test:agent-embeddings"
+        dimensions = 2
+
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            assert tool == "retrieve_documentation", (
+                "Metadata/summary need no embeddings"
+            )
+            return [[1.0, 0.0] for _ in texts]
+
+    class Agent:
+        model_id = "test:agent"
+
+        async def choose_tool(self, question, document_id):
+            return ToolCall(tool, ToolArguments(document_id=document_id), "call-test")
+
+        async def complete_tool(self, question, call, output, system_prompt):
+            assert output["sources"][0]["text"].startswith("Use ROLLBACK")
+            return GeneratedAnswer(answer="Use ROLLBACK [S1].", citation_labels=["S1"])
+
+    app = create_app(settings_for(database_engine))
+    app.dependency_overrides[get_tool_provider] = lambda: Agent()
+    app.dependency_overrides[get_embedding_provider] = lambda: Embeddings()
+    with TestClient(app) as client:
+        doc = client.post(
+            "/documents",
+            files={
+                "file": (
+                    "guide.md",
+                    b"Use ROLLBACK to undo uncommitted changes.",
+                    "text/markdown",
+                )
+            },
+        ).json()
+        if tool == "retrieve_documentation":
+            assert client.post(f"/documents/{doc['id']}/index").status_code == 200
+        response = client.post(
+            "/agent/questions",
+            json={"question": "Question", "selected_document_id": doc["id"]},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["tool"] == tool
+        if tool == "inspect_document_metadata":
+            assert body["status"] == "metadata"
+            assert body["document"] == doc
+            assert body["citations"] == []
+        else:
+            assert body["status"] == "answered"
+            assert body["citations"][0]["document_id"] == doc["id"]
+            if tool == "summarize_document":
+                assert body["citations"][0]["similarity"] is None
+        assert (
+            client.post(
+                "/agent/questions",
+                json={"question": "Question", "selected_document_id": str(uuid4())},
+            ).status_code
+            == 404
+        )

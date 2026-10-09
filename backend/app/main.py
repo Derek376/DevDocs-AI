@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.ai.embeddings import EmbeddingError
 from app.ai.llm import LLMError
 from app.ai.openai import OpenAIEmbeddingProvider, OpenAILLMProvider
+from app.api.agent import router as agent_router
 from app.api.documents import router as documents_router
 from app.api.health import router as health_router
 from app.api.questions import router as questions_router
@@ -57,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents_router)
     app.include_router(search_router)
     app.include_router(questions_router)
+    app.include_router(agent_router)
 
     @app.exception_handler(LLMError)
     async def llm_error(request: Request, exc: LLMError) -> JSONResponse:
