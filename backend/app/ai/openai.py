@@ -1,9 +1,87 @@
-"""OpenAI Responses adapter; retrieval and citation validation stay in the service."""
+"""OpenAI HTTP adapters; retrieval and citation validation stay in the service."""
 
 import httpx
 
+from app.ai.embeddings import EmbeddingError, validate_vectors
 from app.ai.llm import GeneratedAnswer, LLMError
 from app.core.config import Settings
+
+
+class OpenAIEmbeddingProvider:
+    def __init__(self, settings: Settings, client: httpx.AsyncClient) -> None:
+        self.model = settings.embedding_model
+        self.model_id = f"openai:{self.model}"
+        self.dimensions = settings.embedding_dimensions
+        self.api_key = settings.openai_api_key
+        self.client = client
+        self.timeout = settings.embedding_timeout_seconds
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        if self.api_key is None:
+            raise EmbeddingError(
+                "OpenAI is not configured. Set OPENAI_API_KEY in the root .env "
+                "and restart the backend."
+            )
+        try:
+            response = await self.client.post(
+                "https://api.openai.com/v1/embeddings",
+                headers={"Authorization": f"Bearer {self.api_key.get_secret_value()}"},
+                json={
+                    "model": self.model,
+                    "input": texts,
+                    "dimensions": self.dimensions,
+                    "encoding_format": "float",
+                },
+                timeout=self.timeout,
+            )
+            if response.status_code in (401, 403):
+                raise EmbeddingError(
+                    "OpenAI authentication or permission failed. Check the backend "
+                    "API key and project model access."
+                )
+            if response.status_code == 429:
+                raise EmbeddingError(
+                    "OpenAI rate or quota limit reached. Check API billing and limits, "
+                    "then retry later."
+                )
+            if response.status_code == 404:
+                raise EmbeddingError(
+                    "OpenAI embedding model is unavailable. Check EMBEDDING_MODEL "
+                    "and project access."
+                )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise EmbeddingError(
+                "OpenAI embedding request failed. Check network access, input length "
+                "and embedding settings, then retry."
+            ) from exc
+        try:
+            body = response.json()
+            data = body.get("data") if isinstance(body, dict) else None
+            if not isinstance(data, list) or len(data) != len(texts):
+                raise ValueError("Unexpected embedding count")
+            # Match by input index, never assume the response array is ordered.
+            vectors: list[object] = [None] * len(texts)
+            seen: set[int] = set()
+            for item in data:
+                if not isinstance(item, dict):
+                    raise ValueError("Invalid embedding item")
+                index = item.get("index")
+                if (
+                    type(index) is not int
+                    or not 0 <= index < len(texts)
+                    or index in seen
+                ):
+                    raise ValueError("Invalid embedding index")
+                seen.add(index)
+                vectors[index] = item.get("embedding")
+            return validate_vectors(vectors, len(texts), self.dimensions)
+        except (ValueError, TypeError) as exc:
+            raise EmbeddingError(
+                "OpenAI returned an invalid embedding response. Please retry."
+            ) from exc
 
 
 class OpenAILLMProvider:
@@ -17,7 +95,7 @@ class OpenAILLMProvider:
     async def generate(self, system_prompt: str, user_prompt: str) -> GeneratedAnswer:
         if self.api_key is None:
             raise LLMError(
-                "OpenAI is not configured. Set OPENAI_API_KEY in the backend .env "
+                "OpenAI is not configured. Set OPENAI_API_KEY in the root .env "
                 "and restart the backend."
             )
         try:

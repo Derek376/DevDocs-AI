@@ -3,12 +3,11 @@
 A technical documentation assistant that retrieves relevant passages from uploaded
 documents and uses a language model to produce answers with source citations.
 
-**Status:** Milestone 8 — evaluation complete. A nine-question synthetic dataset,
-isolated live runner, offline scorer, claim review rubric and recorded baseline
-measure retrieval relevance, answer groundedness and citation correctness. The
-baseline preserves a refusal-policy mismatch and overly broad citation groups;
-these measurements do not establish general model accuracy. See
-[evaluation instructions and results](evaluation/README.md).
+**Status:** Milestone 9 — production engineering complete. Backend/frontend images,
+ordered Docker Compose startup, CI, structured request logging and safe errors are
+implemented and locally verified. The project remains a local single-user MVP.
+See [production setup and decisions](docs/production.md) and the
+[evaluation baseline](evaluation/README.md).
 This project is built one milestone at a time, with explanations and verification
 before continuing.
 
@@ -158,11 +157,16 @@ DevDocs AI/
 ├── README.md
 ├── .gitignore
 ├── .env.example
-├── compose.yaml             # local PostgreSQL + pgvector service
+├── compose.yaml             # database, migrations, backend and frontend
+├── .github/workflows/ci.yml # backend/frontend/container checks
+├── docs/production.md       # container setup, operations and CI decisions
+├── scripts/smoke_compose.py # HTTP integration smoke for a disposable stack
 ├── backend/
 │   ├── pyproject.toml       # dependencies and test/lint configuration
 │   ├── uv.lock              # exact resolved dependency versions
 │   ├── alembic.ini          # migration configuration
+│   ├── Dockerfile
+│   ├── .dockerignore
 │   ├── migrations/          # env.py, revision template, and versioned schema
 │   ├── evals/               # dataset validation, live runner, scoring CLI
 │   ├── app/
@@ -178,12 +182,13 @@ DevDocs AI/
 │   │   ├── ai/
 │   │   │   ├── __init__.py
 │   │   │   ├── embeddings.py # provider contract and vector validation
-│   │   │   ├── ollama.py     # local embedding and generation adapters
-│   │   │   ├── openai.py     # external Responses API generation adapter
+│   │   │   ├── openai.py     # embedding and Responses API adapters
 │   │   │   └── llm.py        # generation contract and structured output
 │   │   ├── core/
 │   │   │   ├── __init__.py
-│   │   │   └── config.py    # typed environment settings
+│   │   │   ├── config.py    # typed environment settings
+│   │   │   ├── logging.py   # allowlisted JSON application logs
+│   │   │   └── middleware.py # correlation and safe unexpected-error boundary
 │   │   ├── services/
 │   │   │   ├── __init__.py
 │   │   │   ├── ingestion.py
@@ -214,6 +219,7 @@ DevDocs AI/
 │       ├── test_rag.py
 │       ├── test_retrieval_quality.py
 │       ├── test_evaluation.py
+│       ├── test_operations.py
 │       └── integration/
 │           └── test_database.py
 ├── evaluation/
@@ -222,6 +228,9 @@ DevDocs AI/
 │   ├── corpus/              # six fictional documentation files
 │   └── baseline/            # recorded run, claim review and metric summary
 └── frontend/
+    ├── Dockerfile
+    ├── .dockerignore
+    ├── nginx.conf           # static files and same-origin API proxy
     ├── package.json         # dev, build, lint, and test commands
     ├── package-lock.json    # exact npm dependency versions
     ├── index.html           # browser entry point
@@ -257,8 +266,9 @@ backend/
 └── migrations/
 ```
 
-CI workflows and evaluation data arrive in their own milestones.
-Compose currently runs the database only; application containers arrive later.
+CI workflows and evaluation data are now present. Compose runs PostgreSQL,
+a one-shot migration service, FastAPI and the built React frontend; see
+[container setup](docs/production.md).
 Prefer small modules and simple functions/classes; do not introduce a generic
 framework or a separate service for every responsibility.
 
@@ -275,6 +285,7 @@ directory. Copy `.env.example` to `.env` if you want to change defaults.
 | --- | --- | --- |
 | `APP_NAME` | `DevDocs AI` | API title in generated documentation; must be nonempty. |
 | `APP_ENV` | `development` | Environment label: `development`, `test`, or `production`. |
+| `LOG_LEVEL` | `INFO` | JSON application log threshold: `DEBUG`, `INFO`, `WARNING`, or `ERROR`. |
 | `POSTGRES_HOST` | `127.0.0.1` | Host address used by the locally running backend. |
 | `POSTGRES_PORT` | `5432` | Host port; valid range 1–65535. |
 | `POSTGRES_DB` | `devdocs` | Database name. |
@@ -285,20 +296,20 @@ directory. Copy `.env.example` to `.env` if you want to change defaults.
 | `MAX_PDF_PAGES` | `200` | Maximum PDF page count. |
 | `CHUNK_SIZE` | `1000` | Characters per chunk; valid range 100–10000. |
 | `CHUNK_OVERLAP` | `150` | Repeated characters; must be nonnegative and smaller than chunk size. |
-| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Server called by the backend; the default keeps text local. |
-| `EMBEDDING_MODEL` | `embeddinggemma` | Dedicated embedding model downloaded through Ollama. |
-| `EMBEDDING_DIMENSIONS` | `768` | Expected output size; mismatches reject indexing/search. |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model for indexing and search. |
+| `EMBEDDING_DIMENSIONS` | `1536` | Expected output size; mismatches reject indexing/search. |
 | `EMBEDDING_BATCH_SIZE` | `32` | Number of chunks per model request, valid range 1–128. |
 | `EMBEDDING_TIMEOUT_SECONDS` | `120` | Timeout per embedding request. |
-| `LLM_PROVIDER` | `ollama` | Generation adapter: `ollama` or `openai`; the example environment selects `openai`. |
-| `LLM_MODEL` | `llama3.2:1b` | Generation model; use `gpt-5.4-mini` with OpenAI. |
-| `OPENAI_API_KEY` | unset | Backend-only secret for OpenAI generation; blank is treated as missing. |
+| `LLM_PROVIDER` | `openai` | Only OpenAI is enabled in the current application. |
+| `LLM_MODEL` | `gpt-5.4-mini` | OpenAI answer-generation model. |
+| `OPENAI_API_KEY` | unset | Backend-only secret for OpenAI embeddings and generation; blank is treated as missing. |
 | `LLM_TIMEOUT_SECONDS` | `120` | Timeout per answer-generation request. |
 | `RETRIEVAL_TOP_K` | `5` | Default maximum source count, 1–20; request override available. |
 | `RETRIEVAL_MIN_SIMILARITY` | `0.35` | Minimum cosine similarity, 0–1; a heuristic, not confidence. |
+| `BACKEND_PORT` / `FRONTEND_PORT` | `8000` / `8080` | Compose published host ports; not FastAPI settings. |
 
 `APP_ENV` does not automatically enable production security or change logging.
-Logging and provider settings will be added when needed. Configuration
+`LOG_LEVEL` configures structured application logs independently. Configuration
 precedence is explicit constructor values → environment variables → `.env` →
 defaults. Invalid values prevent application creation rather than silently using
 a fallback. Unknown dotenv keys are ignored so the root file can eventually hold
@@ -324,7 +335,7 @@ docker compose up -d --wait db
 cd backend
 uv sync --locked
 uv run --locked alembic upgrade head
-uv run --locked uvicorn app.main:create_app --factory --reload
+uv run --locked uvicorn app.main:create_app --factory --reload --no-access-log
 ```
 
 If `.env` already exists, keep it and add the database settings instead of copying
@@ -363,7 +374,7 @@ application factory. Fixtures isolate tests from developer environment settings.
 Frontend checks are documented below. The backend is not built as a Python package.
 
 Without `TEST_DATABASE_URL`, 27 database integration cases are explicitly skipped;
-177 non-integration tests still run. To exercise all 204 tests against the local
+187 non-integration tests still run. To exercise all 214 tests against the local
 Compose database, run this from `backend/` (it reads `.env` without printing the
 password):
 
@@ -409,7 +420,7 @@ and [uv projects](https://docs.astral.sh/uv/guides/projects/).
 | 6 | React upload, document list, questions, answers, and sources | Complete |
 | 7 | Retrieval settings, filters, context cleanup, insufficient-evidence handling | Complete |
 | 8 | Evaluation dataset: retrieval relevance, groundedness, citation correctness | Complete |
-| 9 | Service containers, CI, automated checks, logging, error/secrets handling | Planned |
+| 9 | Service containers, CI, automated checks, logging, error/secrets handling | Complete |
 | 10 | Simple assistant using retrieval, metadata, and summary tools | Planned |
 | 11 | Setup guide, screenshots, API docs, decisions, limitations, interview notes | Planned |
 
@@ -422,7 +433,7 @@ the model. Offline scoring separates quote-based retrieval metrics, deterministi
 citation validity, and manually reviewed semantic support. Pending reviews remain
 unscored; review fingerprints prevent grading a changed run with old judgements.
 
-The recorded `gpt-5.4-mini`/`embeddinggemma` baseline has 63.6% macro retrieval
+The historical `gpt-5.4-mini`/`embeddinggemma` baseline has 63.6% macro retrieval
 precision and 100% evidence recall across seven gold-labelled cases. One Codex
 manual review found 15/15 claims grounded and 16/18 individual citation pairs
 supporting their associated claim. Expected answer/refusal status matched 8/9
@@ -441,7 +452,8 @@ The backend exposes document ingestion/inspection, health, database readiness,
 and generated API documentation. It embeds text, retrieves evidence, and generates
 answers with source references. Groundedness is not guaranteed by citation validity. The MVP scope excludes scanned PDFs and multi-user access. Model context limits, provider cost/latency, upload processing
 time, prompt injection, and retrieval quality will inform later decisions.
-Local models are a future provider option; none is selected or installed now.
+Embeddings and generation use OpenAI APIs; no local model server is required.
+Model services remain external to the application images.
 
 ## Interview notes — Milestone 0
 
@@ -638,23 +650,17 @@ not yet prove an answer is grounded. Embeddings and retrieval begin in Milestone
 
 ## Embeddings and semantic search — Milestone 4
 
-The first real provider is local Ollama with `embeddinggemma` (768-dimensional
-vectors). Ollama was already installed on the development machine; its dedicated
-embedding model was downloaded and verified. On a new machine, install/start
-Ollama, then prepare the model and migrate the database:
+Indexing and search use OpenAI `text-embedding-3-small` with 1536-dimensional
+vectors. Set `OPENAI_API_KEY` in the ignored root `.env`; no local model server
+is required. See [OpenAI vector embeddings](https://developers.openai.com/api/docs/guides/embeddings).
+Start PostgreSQL and then the backend:
 
 ```sh
-ollama pull embeddinggemma
 cd backend
 uv sync --locked
 uv run --locked alembic upgrade head
-uv run --locked uvicorn app.main:create_app --factory --reload
+uv run --locked uvicorn app.main:create_app --factory --reload --no-access-log
 ```
-
-Ollama normally serves on port 11434. If using its CLI without a running service,
-start `ollama serve` in a separate terminal. No API key is required for this local
-adapter. Configuring a remote base URL sends document text/questions to that
-server; the default URL uses loopback. See [Ollama embeddings](https://docs.ollama.com/capabilities/embeddings).
 
 After uploading, use the returned document UUID:
 
@@ -684,11 +690,11 @@ This route returns retrieved sources only. Use `/questions`, introduced in Miles
 ### Important code and design decisions
 
 - `ai/embeddings.py`: a small `EmbeddingProvider` protocol exposes model identity,
-  dimensions, and `embed(texts)`. Business logic does not import an Ollama SDK.
-- `ai/ollama.py`: an async HTTP adapter sends batches to `/api/embed` with
-  `truncate=false`, rejecting overlong input rather than silently dropping text.
+  dimensions, and `embed(texts)`. Business logic does not depend on a vendor SDK.
+- `ai/openai.py`: an async HTTP adapter sends batches to `/v1/embeddings`,
+  requests float vectors and checks input indices before mapping them to chunks.
 - The FastAPI lifespan owns and closes one pooled HTTP client. It does not load
-  the model or require Ollama during health checks or text uploads.
+  model weights or call OpenAI during health checks or text uploads.
 - `services/search.py`: snapshots source data, ends the read transaction before
   waiting on the model, validates all batches, and then performs atomic writes.
 - `persistence/search.py`: joins documents and chunks and uses pgvector's cosine
@@ -707,10 +713,10 @@ The `vector` column intentionally has no fixed dimension. This allows a later
 model with a different dimension without changing the column type; search still
 filters for the configured dimension and model. Same dimension alone does not
 make models compatible. Changing the model requires re-indexing every document.
-The stored identity is `ollama:MODEL_NAME`; if weights behind a mutable model tag
-change, re-index all documents before searching. Silent tag changes are not
-automatically detected. An external provider can implement the same protocol;
-no external API adapter is installed yet.
+The stored identity is `openai:MODEL_NAME`. Changing providers, model weights or
+dimensions requires re-indexing every document. Old incompatible vectors are
+excluded from search; source text remains intact. Silent model alias changes
+are not automatically detected. A replacement provider can implement the same protocol.
 
 Exact search compares every compatible indexed vector and is appropriate for the
 initial corpus. HNSW/IVFFlat indexes trade speed, memory, and recall and should be
@@ -740,7 +746,7 @@ Database tests verify cosine ordering with known vectors, compatibility filterin
 atomic failed-batch behaviour, and migration preservation. These deterministic
 tests validate engineering behaviour; they do not measure a real model's quality.
 
-A separate real HTTP check uploaded three documents, generated local Ollama
+A historical Milestone 4 HTTP check uploaded three documents, generated local Ollama
 768-dimensional embeddings, stored them in pgvector, and queried a rollback
 question. Transaction documentation ranked first (similarity approximately 0.529),
 ahead of Docker (0.205) and React (0.186). This is a smoke check, not an evaluation
@@ -763,12 +769,9 @@ flowchart LR
     V --> A[Generated answer and separate source evidence]
 ```
 
-The original Milestone 5 local baseline uses `llama3.2:1b`. OpenAI generation
-was added afterwards; see the provider-switch instructions below. For
-another machine, run `ollama pull llama3.2:1b` alongside the embedding model setup.
-The generation and embedding providers use independent interfaces and model
-settings; replacing one does not require changing the other. No new dependency
-or database migration is needed for this milestone.
+Answer generation uses `gpt-5.4-mini` through OpenAI's Responses API. Generation
+and embedding providers use independent interfaces because they perform different
+jobs. GPT writes the answer; the embedding model creates vectors for retrieval.
 
 After uploading and indexing a document, with the API running:
 
@@ -798,10 +801,9 @@ It does not eliminate hallucinations or repair missing/incorrect retrieval.
 ### Important code
 
 - `ai/llm.py` defines a small `LLMProvider` protocol and typed `GeneratedAnswer`.
-- `ai/ollama.py` implements non-streaming `/api/chat`, with separate system/user
-  roles and a JSON schema for `answer` and `citation_labels`. It uses temperature
-  0, an 8192-token context setting, and a 512-token output limit. This reduces
-  variation but does not guarantee determinism or correctness.
+- `ai/openai.py` calls the Responses API with system/user messages and a strict
+  JSON schema for `answer` and `citation_labels`. It checks completion and refusals;
+  structured output does not guarantee factual correctness.
 - `services/rag.py` retrieves five matches, snapshots plain source data, releases
   the database read transaction, builds the prompt, calls generation, and resolves
   citation labels. Database connections are not held while waiting for the LLM.
@@ -813,7 +815,7 @@ and so on in retrieval order. A shortened excerpt is explicitly marked truncated
 Question, labels, and sources are serialized as JSON in the user message; the
 system message says source content is untrusted data and must not be followed as
 instructions. A concrete output example shows both inline `[S1]` markers and the
-matching label array. See [Ollama chat and structured outputs](https://github.com/ollama/ollama/blob/main/docs/api.md).
+matching label array. See [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 
 ### Citation and failure contracts
 
@@ -858,7 +860,7 @@ matching, context limits, no-source behaviour, suppression of uncited text, and
 real database source-reference resolution. Most tests use deterministic providers
 so ordinary checks require neither a model server nor probabilistic answers.
 
-A separate real HTTP check used the local embedding and chat models plus a
+A historical Milestone 5 HTTP check used the local embedding and chat models plus a
 disposable PostgreSQL database. It uploaded transaction documentation, indexed it,
 asked how to undo changes, and received a ROLLBACK answer with `[S1]` resolving to
 the stored source text. An initial model response omitted the inline marker;
@@ -883,7 +885,7 @@ UI framework, or AI SDK is needed for this one-page interface.
 ### Run the interface
 
 Start the database, apply migrations, and run the backend as described above.
-Ollama must be running with the embedding model from Milestone 4. Configure
+Set the backend OpenAI API key for embeddings and answer generation. Configure
 OpenAI generation below, or use the local chat-model alternative from Milestone 5. In a separate terminal, from the repository root:
 
 ```sh
@@ -971,7 +973,7 @@ Vitest, jsdom, and Testing Library, exercising observable user behaviour rather
 than CSS snapshots. Lint and the TypeScript/Vite production build passed. All
 111 backend tests, including 24 real PostgreSQL integration cases, also passed.
 
-A browser check uploaded and indexed transaction documentation using real FastAPI,
+A historical Milestone 6 browser check uploaded and indexed transaction documentation using real FastAPI,
 PostgreSQL/pgvector and Ollama embeddings. Two questions to `llama3.2:1b` returned
 invalid citation references; strict backend validation rejected them, and the UI
 displayed the useful error and allowed retry. Successful answer rendering and
@@ -990,62 +992,54 @@ probabilistic RAG evaluation answer different questions. Quality improvements
 were added in Milestone 7 below; evaluation remains Milestone 8.
 
 
-## Switch answer generation to OpenAI
+## OpenAI-only model configuration
 
-The official model ID is `gpt-5.4-mini` (hyphens and a dot). The safe example
-environment selects OpenAI; the code defaults retain the offline Ollama baseline
-for developers who do not copy that file. In the ignored root `.env`, set:
+The official generation model ID is `gpt-5.4-mini` (hyphens and a dot). Both the
+code defaults and `.env.example` use OpenAI. Configure the ignored root `.env`:
 
 ```dotenv
 LLM_PROVIDER=openai
 LLM_MODEL=gpt-5.4-mini
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=1536
 OPENAI_API_KEY=your-own-api-key
-LLM_TIMEOUT_SECONDS=120
 ```
 
-Replace the placeholder locally. Do not paste your key into chat, frontend code,
-README examples, screenshots, or Git. Environment variables override `.env`.
-Restart the backend after changing settings:
+Replace the placeholder locally. Keep the key in the backend environment; never
+put it in frontend variables or Git. Restart the backend after changing settings:
 
 ```sh
 cd backend
-uv run --locked uvicorn app.main:create_app --factory --reload
+uv run --locked uvicorn app.main:create_app --factory --reload --no-access-log
 ```
 
-The existing frontend works without changes. The backend calls OpenAI's Responses
-API using the existing shared asynchronous `httpx` client, so no new SDK or
-lockfile change is needed. The adapter requests a strict JSON schema matching
-`GeneratedAnswer`, uses `reasoning.effort: none` and a 1024-token output cap, and
-sets `store: false`. It checks completion, refusal, message content, and the
-returned schema before returning the same provider-independent result.
+For containers, recreate the services using `docker compose up --build --detach
+--wait`. The frontend needs no model configuration. Both adapters share an async
+`httpx` client, so no new SDK dependency is needed. Generation requests a strict
+JSON schema, `reasoning.effort: none`, a 1024-token output cap and `store: false`.
+The embedding adapter validates response indices, vector counts, dimensions and
+values before storage. Missing keys, quota limits, permissions, transport failures
+and malformed responses produce useful errors without exposing provider bodies.
+Uploads and health checks still work without an API key. There is no local fallback.
 
-Retrieved source labels and inline markers are still checked by `services/rag.py`.
-Structured outputs constrain response shape; they do not guarantee matching
-citation references or supported claims. No automatic repair retries or silent
-fallback to Ollama are added. A missing key gives a useful question error while
-allowing document upload and liveness checks to work. Authentication, model
-access, quota/rate limits, transport errors, refusals and incomplete generation
-also have safe error messages; raw provider responses and credentials are not
-returned to the browser.
+**After switching from the previous embedding model, click “Index for search”
+for each existing document.** Source text and metadata remain intact; indexing
+atomically replaces old vectors. Search excludes vectors from other models or
+dimensions. Comparing vectors from different models is meaningless even when
+both produce the same number of dimensions. No database migration is required.
+The similarity cutoff is model-dependent and should be assessed again using a
+fresh evaluation; the saved Milestone 8 baseline used the previous embeddings.
 
-**Data flow:** embeddings still run locally through Ollama. Questions and the
-retrieved source excerpts are sent to OpenAI for generation, with API usage billed
-to your API account. `store: false` disables response storage through the Responses
-API; it does not make the request local or override OpenAI's other data-handling
-policies. Do not upload documents you are not permitted to send to that provider.
+**Data flow:** indexing sends document chunks to OpenAI; search sends the question
+for embedding; generation sends the question and retrieved excerpts. These calls
+use your API account. `store: false` disables Responses API response storage;
+it does not override other provider data policies. See
+[OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data).
 
-Changing only the generation model requires no new document embeddings. Changing
-the embedding model would require re-indexing, because vector coordinates belong
-to that model's embedding space. To return to local generation, set
-`LLM_PROVIDER=ollama` and `LLM_MODEL=llama3.2:1b`, then restart the backend.
-
-New mocked-HTTP tests exercise the request schema/authentication, mixed output
-items, status/error variants, refusals, malformed output, missing credentials,
-secret masking, and app provider selection. They use dummy keys and make no paid
-requests. All 142 backend tests (including 24 PostgreSQL integration cases),
-Ruff lint, and formatting checks passed after this change. A live OpenAI answer
-must be checked after configuring your own key;
-mocked tests do not prove account access or RAG answer quality.
+Mocked tests cover batch ordering, invalid vectors/indices, authentication,
+missing keys, quota/transport failures, structured answers and app provider wiring.
+They make no paid requests. Historical live checks below describe the providers
+used at the time, not a quality measurement for the new embeddings.
 
 For interviews, this is a concrete example of dependency inversion: the RAG
 service depends on `LLMProvider`, not a particular vendor. Only the application
@@ -1192,7 +1186,7 @@ passed, including control serialization, clearing scope/defaults, and keeping a
 displayed answer's original scope. Ruff lint/format, ESLint, TypeScript and Vite
 build checks passed.
 
-Browser smoke checks used a disposable database, local Ollama embeddings and the
+Historical Milestone 7 browser smoke checks used a disposable database, local Ollama embeddings and the
 configured `gpt-5.4-mini` on synthetic transaction documentation. The model returned
 a ROLLBACK answer with valid `[S1]` references, and the UI opened the original
 excerpt. A missing `MAX_RETRY_COUNT` question fell below the retrieval cutoff and
@@ -1209,3 +1203,22 @@ why metadata filtering must precede limiting, why candidates and final context
 are different, and why exact cleanup preserves provenance. Distinguish deterministic
 validation from probabilistic evidence judgement and explain why quality must be
 measured after changing retrieval settings or prompts.
+
+
+## Production engineering — Milestone 9
+
+From the repository root, with the ignored `.env` configured:
+
+```bash
+docker compose up --build --detach --wait --wait-timeout 120
+```
+
+Open <http://localhost:8080>. The migration service completes before the backend
+starts, and Nginx serves the compiled frontend and forwards `/api` requests.
+Model providers remain separately configured. Application images run as non-root
+users with read-only filesystems; document data stays in PostgreSQL's volume.
+
+The [production guide](docs/production.md) explains setup, host/container addresses,
+request IDs, privacy-aware logs, safe errors, meaningful tests, CI jobs and their
+limitations. CI is configured and statically validated; GitHub-hosted execution
+will occur after a push or pull request. No deployment or agent was added.

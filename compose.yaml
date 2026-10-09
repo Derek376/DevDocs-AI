@@ -1,5 +1,27 @@
 name: devdocs-ai
 
+# Runtime variables come from the ignored .env, never from Docker build arguments.
+x-backend: &backend
+  image: devdocs-ai-backend:local
+  env_file: .env
+  environment:
+    APP_ENV: production
+    POSTGRES_HOST: db
+    POSTGRES_PORT: 5432
+    POSTGRES_DB: ${POSTGRES_DB:-devdocs}
+    POSTGRES_USER: ${POSTGRES_USER:-devdocs}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the root .env}
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  read_only: true
+  tmpfs: ["/tmp"]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: ["ALL"]
+  logging: &log-limits
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
   db:
     image: pgvector/pgvector:0.8.2-pg17-trixie
@@ -17,6 +39,55 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+
+  migrate:
+    <<: *backend
+    # The backend build creates this shared image; never fetch an unrelated one.
+    pull_policy: never
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    <<: *backend
+    build: ./backend
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    image: devdocs-ai-frontend:local
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    logging: *log-limits
+    restart: unless-stopped
 
 volumes:
   postgres_data:

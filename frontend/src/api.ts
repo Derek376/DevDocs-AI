@@ -73,9 +73,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   const body: unknown = await response.json().catch(() => undefined)
   if (!response.ok) {
+    const requestId = response.headers.get('X-Request-ID')
+    const reference = requestId && /^[a-f0-9]{32}$/.test(requestId)
+      ? ` Reference: ${requestId}.`
+      : ''
     throw new Error(
-      errorDetail(body) ??
-        `Request failed (${response.status}). Please try again.`,
+      (errorDetail(body) ??
+        `Request failed (${response.status}). Please try again.`) + reference,
     )
   }
   if (body === undefined)

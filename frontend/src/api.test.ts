@@ -53,6 +53,23 @@ describe('API boundaries', () => {
     )
   })
 
+  it('shows a server request reference for troubleshooting', async () => {
+    vi.stubGlobal('fetch', fetchMock)
+    const requestId = 'a'.repeat(32)
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      detail: 'Unexpected server error. Please try again.',
+    }), { status: 500, headers: { 'X-Request-ID': requestId } }))
+    await expect(askQuestion('question')).rejects.toThrow(`Reference: ${requestId}`)
+  })
+
+  it('does not display an arbitrary proxy request header', async () => {
+    vi.stubGlobal('fetch', fetchMock)
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ detail: 'Safe error.' }), {
+      status: 500, headers: { 'X-Request-ID': 'untrusted-private-value' },
+    }))
+    await expect(askQuestion('question')).rejects.toThrow(/^Safe error\.$/)
+  })
+
   it('translates network failure into an actionable message', async () => {
     vi.stubGlobal('fetch', fetchMock)
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))

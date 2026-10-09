@@ -21,8 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.ai.embeddings import EmbeddingError, EmbeddingProvider
 from app.ai.llm import GeneratedAnswer, LLMError, LLMProvider
-from app.ai.ollama import OllamaEmbeddingProvider, OllamaLLMProvider
-from app.ai.openai import OpenAILLMProvider
+from app.ai.openai import OpenAIEmbeddingProvider, OpenAILLMProvider
 from app.core.config import Settings
 from app.persistence.database import create_database_engine
 from app.services.ingestion import ingest_document
@@ -160,7 +159,7 @@ async def run_live(path: Path, settings: Settings) -> dict:
         # Explicit allowlist: never serialize Settings or connection URLs.
         "config": {
             "llm_model": f"{settings.llm_provider}:{settings.llm_model}",
-            "embedding_model": f"ollama:{settings.embedding_model}",
+            "embedding_model": f"openai:{settings.embedding_model}",
             "embedding_dimensions": settings.embedding_dimensions,
             "top_k": settings.retrieval_top_k,
             "min_similarity": settings.retrieval_min_similarity,
@@ -173,12 +172,8 @@ async def run_live(path: Path, settings: Settings) -> dict:
         engine = create_database_engine(isolated)
         try:
             async with httpx.AsyncClient(trust_env=False) as client:
-                embeddings = OllamaEmbeddingProvider(settings, client)
-                llm = (
-                    OpenAILLMProvider(settings, client)
-                    if settings.llm_provider == "openai"
-                    else OllamaLLMProvider(settings, client)
-                )
+                embeddings = OpenAIEmbeddingProvider(settings, client)
+                llm = OpenAILLMProvider(settings, client)
                 report["cases"] = await evaluate(
                     async_sessionmaker(engine, expire_on_commit=False),
                     isolated,

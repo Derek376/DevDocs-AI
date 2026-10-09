@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     app_name: str = Field(default="DevDocs AI", min_length=1)
     app_env: Literal["development", "test", "production"] = "development"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     postgres_host: str = Field(default="127.0.0.1", min_length=1)
     postgres_port: int = Field(default=5432, ge=1, le=65535)
@@ -35,13 +36,14 @@ class Settings(BaseSettings):
     chunk_size: int = Field(default=1000, ge=100, le=10_000)
     chunk_overlap: int = Field(default=150, ge=0)
 
-    ollama_base_url: str = "http://127.0.0.1:11434"
-    embedding_model: str = Field(default="embeddinggemma", min_length=1, max_length=200)
-    embedding_dimensions: int = Field(default=768, ge=1, le=16000)
+    embedding_model: str = Field(
+        default="text-embedding-3-small", min_length=1, max_length=200
+    )
+    embedding_dimensions: int = Field(default=1536, ge=1, le=16000)
     embedding_batch_size: int = Field(default=32, ge=1, le=128)
     embedding_timeout_seconds: float = Field(default=120, gt=0, le=600)
-    llm_provider: Literal["ollama", "openai"] = "ollama"
-    llm_model: str = Field(default="llama3.2:1b", min_length=1, max_length=200)
+    llm_provider: Literal["openai"] = "openai"
+    llm_model: str = Field(default="gpt-5.4-mini", min_length=1, max_length=200)
     llm_timeout_seconds: float = Field(default=120, gt=0, le=600)
     openai_api_key: SecretStr | None = None
     retrieval_top_k: int = Field(default=5, ge=1, le=20)
@@ -50,7 +52,7 @@ class Settings(BaseSettings):
     @field_validator("openai_api_key", mode="before")
     @classmethod
     def normalize_empty_api_key(cls, value: object) -> object:
-        # Allow an empty example value; report missing credentials on generation.
+        # Allow an empty example value; report missing credentials on AI operations.
         if isinstance(value, str) and not value.strip():
             return None
         return value

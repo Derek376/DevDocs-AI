@@ -6,8 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.ai.llm import GeneratedAnswer, LLMError
-from app.ai.ollama import OllamaEmbeddingProvider, OllamaLLMProvider
-from app.ai.openai import OpenAILLMProvider
+from app.ai.openai import OpenAIEmbeddingProvider, OpenAILLMProvider
 from app.core.config import Settings
 from app.main import create_app
 
@@ -193,16 +192,16 @@ def test_missing_api_key_is_useful_and_does_not_send_a_request() -> None:
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("provider", ["ollama", "openai"])
-def test_app_selects_generation_provider_without_changing_embeddings(provider) -> None:
-    config = Settings(
-        llm_provider=provider,
-        llm_model="gpt-5.4-mini" if provider == "openai" else "llama3.2:1b",
-    )
-    with TestClient(create_app(config)) as client:
-        expected = OpenAILLMProvider if provider == "openai" else OllamaLLMProvider
-        assert isinstance(client.app.state.llm_provider, expected)
-        assert isinstance(client.app.state.embedding_provider, OllamaEmbeddingProvider)
+def test_app_uses_openai_for_generation_and_embeddings() -> None:
+    with TestClient(create_app(Settings())) as client:
+        assert isinstance(client.app.state.llm_provider, OpenAILLMProvider)
+        assert isinstance(client.app.state.embedding_provider, OpenAIEmbeddingProvider)
+        assert client.app.state.llm_provider.model_id == "openai:gpt-5.4-mini"
+        assert (
+            client.app.state.embedding_provider.model_id
+            == "openai:text-embedding-3-small"
+        )
+        assert client.app.state.embedding_provider.dimensions == 1536
         assert client.get("/health").status_code == 200
 
 
@@ -213,5 +212,6 @@ def test_blank_openai_key_is_treated_as_missing(value) -> None:
 
 def test_openai_key_is_masked_in_settings_and_invalid_provider_is_rejected() -> None:
     assert "fixture-secret" not in repr(settings())
-    with pytest.raises(ValueError, match="llm_provider"):
-        Settings(llm_provider="unsupported")
+    for provider in ("ollama", "unsupported"):
+        with pytest.raises(ValueError, match="llm_provider"):
+            Settings(llm_provider=provider)

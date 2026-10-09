@@ -22,10 +22,10 @@ uv run --locked python -m evals review-template ../evaluation/runs/baseline/run.
 ```
 
 `validate`, `review-template`, and `score` are offline. Only `run` uses PostgreSQL,
-Ollama embeddings and the configured generation provider. OpenAI runs incur normal
-API usage. PostgreSQL must be running and the configured role must be able to
-create databases and enable pgvector, as in the integration tests. Ollama must
-have the configured embedding model. Backend/frontend servers need not be running.
+OpenAI embeddings and generation. Live runs incur normal API usage. PostgreSQL
+must be running and the configured role must be able to create databases and
+enable pgvector, as in the integration tests. Set OPENAI_API_KEY in the root .env.
+Backend/frontend servers need not be running.
 Credentials come from the existing root `.env`; never put them in commands or
 evaluation files.
 
@@ -120,7 +120,10 @@ chunk boundaries change. All fixture documents currently fit within one default
 chunk; long PDFs, extraction quality and chunk-boundary behaviour are not evaluated
 by this dataset.
 
-## Recorded baseline
+## Historical recorded baseline
+
+This frozen baseline predates the switch to OpenAI embeddings. Its scores do not
+measure the current embedding model; collect and review a new run to compare.
 
 Inspect [run.json](baseline/run.json), [review.json](baseline/review.json), and
 [summary.json](baseline/summary.json). The recorded configuration is
