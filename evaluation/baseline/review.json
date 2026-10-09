@@ -1,0 +1,225 @@
+{
+  "report_sha256": "983ceb32f0024abea694ccb54b42daeb75d95cf26a7244a65911877491363cb5",
+  "reviewer": "Codex manual source review (one reviewer; not independent)",
+  "cases": [
+    {
+      "case_id": "rollback",
+      "complete": true,
+      "claims": [
+        {
+          "text": "Use `ROLLBACK` to discard uncommitted changes in the current transaction after an error",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "case_id": "committed",
+      "complete": true,
+      "claims": [
+        {
+          "text": "COMMIT makes changes permanent",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": ""
+        },
+        {
+          "text": "ROLLBACK cannot undo changes after COMMIT",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "case_id": "v2-limit",
+      "complete": true,
+      "claims": [
+        {
+          "text": "The maximum upload size in AtlasDocs version 2 is 10 MiB",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "case_id": "v2-formats",
+      "complete": true,
+      "claims": [
+        {
+          "text": "AtlasDocs version 2 accepts UTF-8 TXT, Markdown, and text-based PDF files",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": ""
+        },
+        {
+          "text": "Scanned PDFs are unsupported",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": ""
+        },
+        {
+          "text": "version 2 has no OCR",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "case_id": "http-settings",
+      "complete": true,
+      "claims": [
+        {
+          "text": "The AtlasDocs HTTP client read timeout is 30 seconds",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": ""
+        },
+        {
+          "text": "failed requests are retried at most 2 times",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": ""
+        },
+        {
+          "text": "a 500 millisecond delay between retries",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "case_id": "two-documents",
+      "complete": true,
+      "claims": [
+        {
+          "text": "Use ROLLBACK to discard uncommitted changes in the current transaction after an error",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S2",
+              "supports_claim": true
+            }
+          ],
+          "notes": ""
+        },
+        {
+          "text": "The AtlasDocs HTTP client read timeout is 30 seconds",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "case_id": "unspecified-version",
+      "complete": true,
+      "claims": [
+        {
+          "text": "version 1 allows 2 MiB",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            },
+            {
+              "label": "S2",
+              "supports_claim": false
+            }
+          ],
+          "notes": "The shared marker group cites both versions. S2 states only the version 2 limit; it does not support this version 1 claim."
+        },
+        {
+          "text": "version 2 allows 10 MiB",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": false
+            },
+            {
+              "label": "S2",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S1 states only the version 1 limit. The sentence is collectively supported, but each individual citation does not support each atomic claim."
+        },
+        {
+          "text": "The excerpts do not say how to determine which version you use",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            },
+            {
+              "label": "S2",
+              "supports_claim": true
+            }
+          ],
+          "notes": "Verified absence by inspecting both complete supplied excerpts. This is an observation about the excerpts, not a claim that version detection is impossible."
+        }
+      ]
+    }
+  ]
+}

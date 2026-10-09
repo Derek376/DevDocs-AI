@@ -1,0 +1,150 @@
+{
+  "version": "1.0",
+  "documents": [
+    "transactions.md",
+    "uploads-v1.md",
+    "uploads-v2.md",
+    "timeouts.md",
+    "security.md",
+    "transactions-copy.md"
+  ],
+  "cases": [
+    {
+      "id": "rollback",
+      "question": "How do I discard uncommitted AtlasDB changes after an error?",
+      "expected_status": "answered",
+      "evidence": [
+        {
+          "document": "transactions.md",
+          "quote": "Use ROLLBACK to discard uncommitted changes in the current transaction after an error."
+        }
+      ],
+      "reference_answer": "Use ROLLBACK for the current uncommitted transaction.",
+      "documents": [
+        "transactions.md",
+        "timeouts.md"
+      ]
+    },
+    {
+      "id": "committed",
+      "question": "Can ROLLBACK undo AtlasDB changes after COMMIT?",
+      "expected_status": "answered",
+      "evidence": [
+        {
+          "document": "transactions.md",
+          "quote": "ROLLBACK cannot undo changes after COMMIT."
+        }
+      ],
+      "reference_answer": "No. ROLLBACK cannot undo committed changes; a backup restore is needed.",
+      "documents": [
+        "transactions.md",
+        "security.md"
+      ]
+    },
+    {
+      "id": "v2-limit",
+      "question": "What is the maximum upload size in AtlasDocs version 2?",
+      "expected_status": "answered",
+      "evidence": [
+        {
+          "document": "uploads-v2.md",
+          "quote": "In AtlasDocs version 2, the maximum upload size is 10 MiB."
+        }
+      ],
+      "reference_answer": "10 MiB.",
+      "documents": [
+        "uploads-v2.md"
+      ]
+    },
+    {
+      "id": "v2-formats",
+      "question": "Which file types does AtlasDocs version 2 accept, and can it read scanned PDFs?",
+      "expected_status": "answered",
+      "evidence": [
+        {
+          "document": "uploads-v2.md",
+          "quote": "Version 2 accepts UTF-8 TXT, Markdown, and text-based PDF files."
+        },
+        {
+          "document": "uploads-v2.md",
+          "quote": "Scanned PDFs are unsupported because version 2 has no OCR."
+        }
+      ],
+      "reference_answer": "UTF-8 TXT, Markdown, text-based PDF; scanned PDFs are unsupported.",
+      "documents": null
+    },
+    {
+      "id": "http-settings",
+      "question": "What are the AtlasDocs HTTP read timeout and retry settings?",
+      "expected_status": "answered",
+      "evidence": [
+        {
+          "document": "timeouts.md",
+          "quote": "The AtlasDocs HTTP client read timeout is 30 seconds."
+        },
+        {
+          "document": "timeouts.md",
+          "quote": "The HTTP client retries failed requests at most 2 times, with a 500 millisecond delay between retries."
+        }
+      ],
+      "reference_answer": "30-second read timeout; at most 2 retries; 500 ms delay.",
+      "documents": null
+    },
+    {
+      "id": "two-documents",
+      "question": "How do I discard uncommitted AtlasDB changes, and what is the AtlasDocs HTTP read timeout?",
+      "expected_status": "answered",
+      "evidence": [
+        {
+          "document": "transactions.md",
+          "quote": "Use ROLLBACK to discard uncommitted changes in the current transaction after an error."
+        },
+        {
+          "document": "timeouts.md",
+          "quote": "The AtlasDocs HTTP client read timeout is 30 seconds."
+        }
+      ],
+      "reference_answer": "Use ROLLBACK; the HTTP read timeout is 30 seconds.",
+      "documents": [
+        "transactions.md",
+        "timeouts.md"
+      ]
+    },
+    {
+      "id": "missing-retries",
+      "question": "How many times does AtlasDB automatically retry a failed database transaction?",
+      "expected_status": "insufficient_evidence",
+      "evidence": [],
+      "reference_answer": "Decline: HTTP retry settings do not specify database transaction retries.",
+      "documents": null
+    },
+    {
+      "id": "unspecified-version",
+      "question": "What is the AtlasDocs maximum upload size? I do not know which version I use.",
+      "expected_status": "insufficient_evidence",
+      "evidence": [
+        {
+          "document": "uploads-v1.md",
+          "quote": "In AtlasDocs version 1, the maximum upload size is 2 MiB."
+        },
+        {
+          "document": "uploads-v2.md",
+          "quote": "In AtlasDocs version 2, the maximum upload size is 10 MiB."
+        }
+      ],
+      "reference_answer": "Decline: version 1 and version 2 have different limits, and the version is unspecified.",
+      "documents": [
+        "uploads-v1.md",
+        "uploads-v2.md"
+      ]
+    },
+    {
+      "id": "unknown-runtime",
+      "question": "Which Python version does AtlasDocs require?",
+      "expected_status": "insufficient_evidence",
+      "evidence": [],
+      "reference_answer": "Decline: no document specifies a Python runtime version.",
+      "documents": null
+    }
+  ]
+}

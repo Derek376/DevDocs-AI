@@ -29,6 +29,9 @@ data/
 uploads/
 *.log
 
+# Ad hoc model evaluation runs; the reviewed synthetic baseline is tracked.
+evaluation/runs/
+
 # Operating system and editor files.
 .DS_Store
 .idea/

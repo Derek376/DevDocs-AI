@@ -34,6 +34,89 @@ pytestmark = pytest.mark.integration
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_evaluation_runs_production_services_and_removes_its_database(
+    database_engine: Engine,
+) -> None:
+    import asyncio
+    import json
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.persistence.database import create_database_engine
+    from evals.dataset import DEFAULT_DATASET, load_dataset
+    from evals.runner import disposable_database, evaluate
+
+    class Embeddings:
+        model_id = "test:evaluation"
+        dimensions = 2
+
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            return [[1.0, 0.0] for _ in texts]
+
+    class LLM:
+        model_id = "test:evaluation"
+
+        async def generate(
+            self, system_prompt: str, user_prompt: str
+        ) -> GeneratedAnswer:
+            sources = json.loads(user_prompt)["sources"]
+            source = next(s for s in sources if s["filename"] == "transactions.md")
+            return GeneratedAnswer(
+                answer=f"Use ROLLBACK [{source['label']}].",
+                citation_labels=[source["label"]],
+            )
+
+    settings = settings_for(database_engine)
+    dataset, corpus, _ = load_dataset(DEFAULT_DATASET)
+    dataset = dataset.model_copy(update={"cases": dataset.cases[:1]})
+    corpus = {name: corpus[name] for name in dataset.cases[0].documents}
+
+    async def exercise(isolated: Settings) -> list[dict]:
+        engine = create_database_engine(isolated)
+        try:
+            return await evaluate(
+                async_sessionmaker(engine, expire_on_commit=False),
+                isolated,
+                dataset,
+                corpus,
+                Embeddings(),
+                LLM(),
+            )
+        finally:
+            await engine.dispose()
+
+    with disposable_database(settings) as isolated:
+        assert isolated.postgres_db != settings.postgres_db
+        assert isolated.postgres_db.startswith("devdocs_eval_")
+        rows = asyncio.run(exercise(isolated))
+        assert rows[0]["status"] == "answered"
+        assert len(rows[0]["context"]) == 2
+        assert len(rows[0]["citations"]) == 1
+        assert rows[0]["retrieval"] == {"precision": 0.5, "evidence_recall": 1.0}
+    with database_engine.connect() as connection:
+        assert connection.scalar(text("SELECT count(*) FROM documents")) == 0
+        assert (
+            connection.scalar(
+                text("SELECT count(*) FROM pg_database WHERE datname = :name"),
+                {"name": isolated.postgres_db},
+            )
+            == 0
+        )
+
+    # Cleanup must also happen when evaluation aborts before producing a report.
+    with pytest.raises(RuntimeError, match="intentional"):
+        with disposable_database(settings) as aborted:
+            raise RuntimeError("intentional")
+    with database_engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT count(*) FROM pg_database WHERE datname = :name"),
+                {"name": aborted.postgres_db},
+            )
+            == 0
+        )
+
+
 def migrate(engine: Engine, action: str, revision: str) -> None:
     config = Config(str(BACKEND_ROOT / "alembic.ini"))
     with engine.begin() as connection:

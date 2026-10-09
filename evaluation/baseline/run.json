@@ -1,0 +1,650 @@
+{
+  "schema_version": 1,
+  "run_id": "2b6f40cc2b934c36a49f8a59b862ac4a",
+  "started_at": "2026-10-09T10:45:41.515719+00:00",
+  "dataset_version": "1.0",
+  "dataset_sha256": "9351af67c58518c77bc84700986a4fa794b19a3a4c8750bc2e0c1f76135325ec",
+  "prompt_sha256": "43c9f34bd893fd236294821337a3a3af98796f855927dc54a616aa1728dedcb8",
+  "config": {
+    "llm_model": "openai:gpt-5.4-mini",
+    "embedding_model": "ollama:embeddinggemma",
+    "embedding_dimensions": 768,
+    "top_k": 5,
+    "min_similarity": 0.35,
+    "chunk_size": 1000,
+    "chunk_overlap": 150,
+    "max_context_characters": 5000
+  },
+  "cases": [
+    {
+      "case_id": "rollback",
+      "question": "How do I discard uncommitted AtlasDB changes after an error?",
+      "expected_status": "answered",
+      "reference_answer": "Use ROLLBACK for the current uncommitted transaction.",
+      "gold_evidence": [
+        {
+          "document": "transactions.md",
+          "quote": "Use ROLLBACK to discard uncommitted changes in the current transaction after an error."
+        }
+      ],
+      "document_filter": [
+        "transactions.md",
+        "timeouts.md"
+      ],
+      "answer": "Use `ROLLBACK` to discard uncommitted changes in the current transaction after an error [S1].",
+      "citations": [
+        {
+          "label": "S1",
+          "chunk_id": "6ebd24ed-3080-4de9-b060-eee1cdd456d6",
+          "document_id": "14dd2a72-ae05-4c55-8ab3-b6ef1a08c7fb",
+          "filename": "transactions.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDB transaction guide\n\nAtlasDB is a fictional service used only for evaluation.\nStart a transaction with BEGIN. COMMIT makes its changes permanent.\nUse ROLLBACK to discard uncommitted changes in the current transaction after an error.\nROLLBACK cannot undo changes after COMMIT. Recovery after a commit requires restoring a backup.\nThis guide does not specify automatic database transaction retries.",
+          "similarity": 0.7024171320423146,
+          "truncated": false
+        }
+      ],
+      "error": null,
+      "status": "answered",
+      "context": [
+        {
+          "label": "S1",
+          "chunk_id": "6ebd24ed-3080-4de9-b060-eee1cdd456d6",
+          "document_id": "14dd2a72-ae05-4c55-8ab3-b6ef1a08c7fb",
+          "filename": "transactions.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDB transaction guide\n\nAtlasDB is a fictional service used only for evaluation.\nStart a transaction with BEGIN. COMMIT makes its changes permanent.\nUse ROLLBACK to discard uncommitted changes in the current transaction after an error.\nROLLBACK cannot undo changes after COMMIT. Recovery after a commit requires restoring a backup.\nThis guide does not specify automatic database transaction retries.",
+          "similarity": 0.7024171320423146,
+          "truncated": false
+        },
+        {
+          "label": "S2",
+          "chunk_id": "6729bddd-aa59-4819-a4a7-49621d007189",
+          "document_id": "c57b2f5c-2bc7-4498-9d33-f5441be879ff",
+          "filename": "timeouts.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs HTTP client\n\nThe AtlasDocs HTTP client read timeout is 30 seconds.\nThe HTTP client retries failed requests at most 2 times, with a 500 millisecond delay between retries.\nThese HTTP settings do not define database transaction retries.",
+          "similarity": 0.4530891235960607,
+          "truncated": false
+        }
+      ],
+      "elapsed_seconds": 2.229,
+      "retrieval": {
+        "precision": 0.5,
+        "evidence_recall": 1.0
+      }
+    },
+    {
+      "case_id": "committed",
+      "question": "Can ROLLBACK undo AtlasDB changes after COMMIT?",
+      "expected_status": "answered",
+      "reference_answer": "No. ROLLBACK cannot undo committed changes; a backup restore is needed.",
+      "gold_evidence": [
+        {
+          "document": "transactions.md",
+          "quote": "ROLLBACK cannot undo changes after COMMIT."
+        }
+      ],
+      "document_filter": [
+        "transactions.md",
+        "security.md"
+      ],
+      "answer": "No. The guide says COMMIT makes changes permanent, and ROLLBACK cannot undo changes after COMMIT [S1].",
+      "citations": [
+        {
+          "label": "S1",
+          "chunk_id": "6ebd24ed-3080-4de9-b060-eee1cdd456d6",
+          "document_id": "14dd2a72-ae05-4c55-8ab3-b6ef1a08c7fb",
+          "filename": "transactions.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDB transaction guide\n\nAtlasDB is a fictional service used only for evaluation.\nStart a transaction with BEGIN. COMMIT makes its changes permanent.\nUse ROLLBACK to discard uncommitted changes in the current transaction after an error.\nROLLBACK cannot undo changes after COMMIT. Recovery after a commit requires restoring a backup.\nThis guide does not specify automatic database transaction retries.",
+          "similarity": 0.7429144825288345,
+          "truncated": false
+        }
+      ],
+      "error": null,
+      "status": "answered",
+      "context": [
+        {
+          "label": "S1",
+          "chunk_id": "6ebd24ed-3080-4de9-b060-eee1cdd456d6",
+          "document_id": "14dd2a72-ae05-4c55-8ab3-b6ef1a08c7fb",
+          "filename": "transactions.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDB transaction guide\n\nAtlasDB is a fictional service used only for evaluation.\nStart a transaction with BEGIN. COMMIT makes its changes permanent.\nUse ROLLBACK to discard uncommitted changes in the current transaction after an error.\nROLLBACK cannot undo changes after COMMIT. Recovery after a commit requires restoring a backup.\nThis guide does not specify automatic database transaction retries.",
+          "similarity": 0.7429144825288345,
+          "truncated": false
+        },
+        {
+          "label": "S2",
+          "chunk_id": "ba0a18ef-39cd-427c-83ba-7c9de9681435",
+          "document_id": "b297a19b-1474-4419-b213-829b9b656102",
+          "filename": "security.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs credentials\n\nThe AtlasDocs API uses an Authorization: Bearer header for authentication.\nStore API keys on the backend only. Never put API keys in frontend bundles or version control.\nThe server reads credentials from its environment.",
+          "similarity": 0.39298948007759327,
+          "truncated": false
+        }
+      ],
+      "elapsed_seconds": 1.37,
+      "retrieval": {
+        "precision": 0.5,
+        "evidence_recall": 1.0
+      }
+    },
+    {
+      "case_id": "v2-limit",
+      "question": "What is the maximum upload size in AtlasDocs version 2?",
+      "expected_status": "answered",
+      "reference_answer": "10 MiB.",
+      "gold_evidence": [
+        {
+          "document": "uploads-v2.md",
+          "quote": "In AtlasDocs version 2, the maximum upload size is 10 MiB."
+        }
+      ],
+      "document_filter": [
+        "uploads-v2.md"
+      ],
+      "answer": "The maximum upload size in AtlasDocs version 2 is 10 MiB [S1].",
+      "citations": [
+        {
+          "label": "S1",
+          "chunk_id": "08941697-7e94-4752-a1b9-026f32466ab6",
+          "document_id": "58a59631-fe7a-47b4-81da-4f43f5cac7dc",
+          "filename": "uploads-v2.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 2\n\nIn AtlasDocs version 2, the maximum upload size is 10 MiB.\nVersion 2 accepts UTF-8 TXT, Markdown, and text-based PDF files.\nScanned PDFs are unsupported because version 2 has no OCR.\nOversized uploads return HTTP 413. Unsupported file formats return HTTP 415.\nThese rules apply only to version 2.",
+          "similarity": 0.81771304396236,
+          "truncated": false
+        }
+      ],
+      "error": null,
+      "status": "answered",
+      "context": [
+        {
+          "label": "S1",
+          "chunk_id": "08941697-7e94-4752-a1b9-026f32466ab6",
+          "document_id": "58a59631-fe7a-47b4-81da-4f43f5cac7dc",
+          "filename": "uploads-v2.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 2\n\nIn AtlasDocs version 2, the maximum upload size is 10 MiB.\nVersion 2 accepts UTF-8 TXT, Markdown, and text-based PDF files.\nScanned PDFs are unsupported because version 2 has no OCR.\nOversized uploads return HTTP 413. Unsupported file formats return HTTP 415.\nThese rules apply only to version 2.",
+          "similarity": 0.81771304396236,
+          "truncated": false
+        }
+      ],
+      "elapsed_seconds": 1.242,
+      "retrieval": {
+        "precision": 1.0,
+        "evidence_recall": 1.0
+      }
+    },
+    {
+      "case_id": "v2-formats",
+      "question": "Which file types does AtlasDocs version 2 accept, and can it read scanned PDFs?",
+      "expected_status": "answered",
+      "reference_answer": "UTF-8 TXT, Markdown, text-based PDF; scanned PDFs are unsupported.",
+      "gold_evidence": [
+        {
+          "document": "uploads-v2.md",
+          "quote": "Version 2 accepts UTF-8 TXT, Markdown, and text-based PDF files."
+        },
+        {
+          "document": "uploads-v2.md",
+          "quote": "Scanned PDFs are unsupported because version 2 has no OCR."
+        }
+      ],
+      "document_filter": null,
+      "answer": "AtlasDocs version 2 accepts UTF-8 TXT, Markdown, and text-based PDF files [S1]. Scanned PDFs are unsupported because version 2 has no OCR [S1].",
+      "citations": [
+        {
+          "label": "S1",
+          "chunk_id": "08941697-7e94-4752-a1b9-026f32466ab6",
+          "document_id": "58a59631-fe7a-47b4-81da-4f43f5cac7dc",
+          "filename": "uploads-v2.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 2\n\nIn AtlasDocs version 2, the maximum upload size is 10 MiB.\nVersion 2 accepts UTF-8 TXT, Markdown, and text-based PDF files.\nScanned PDFs are unsupported because version 2 has no OCR.\nOversized uploads return HTTP 413. Unsupported file formats return HTTP 415.\nThese rules apply only to version 2.",
+          "similarity": 0.7408664977034047,
+          "truncated": false
+        }
+      ],
+      "error": null,
+      "status": "answered",
+      "context": [
+        {
+          "label": "S1",
+          "chunk_id": "08941697-7e94-4752-a1b9-026f32466ab6",
+          "document_id": "58a59631-fe7a-47b4-81da-4f43f5cac7dc",
+          "filename": "uploads-v2.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 2\n\nIn AtlasDocs version 2, the maximum upload size is 10 MiB.\nVersion 2 accepts UTF-8 TXT, Markdown, and text-based PDF files.\nScanned PDFs are unsupported because version 2 has no OCR.\nOversized uploads return HTTP 413. Unsupported file formats return HTTP 415.\nThese rules apply only to version 2.",
+          "similarity": 0.7408664977034047,
+          "truncated": false
+        },
+        {
+          "label": "S2",
+          "chunk_id": "04f2ad7d-e98f-417f-9abd-1957f6ee8730",
+          "document_id": "4b21d8a2-e24f-4894-9389-febddcdfe1ee",
+          "filename": "uploads-v1.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 1\n\nAtlasDocs is a fictional documentation service.\nIn AtlasDocs version 1, the maximum upload size is 2 MiB.\nVersion 1 accepts TXT and Markdown files.\nThese limits apply only to version 1; see the version 2 guide for version 2 limits.",
+          "similarity": 0.6015802621841474,
+          "truncated": false
+        },
+        {
+          "label": "S3",
+          "chunk_id": "ba0a18ef-39cd-427c-83ba-7c9de9681435",
+          "document_id": "b297a19b-1474-4419-b213-829b9b656102",
+          "filename": "security.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs credentials\n\nThe AtlasDocs API uses an Authorization: Bearer header for authentication.\nStore API keys on the backend only. Never put API keys in frontend bundles or version control.\nThe server reads credentials from its environment.",
+          "similarity": 0.4730118372138806,
+          "truncated": false
+        },
+        {
+          "label": "S4",
+          "chunk_id": "6729bddd-aa59-4819-a4a7-49621d007189",
+          "document_id": "c57b2f5c-2bc7-4498-9d33-f5441be879ff",
+          "filename": "timeouts.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs HTTP client\n\nThe AtlasDocs HTTP client read timeout is 30 seconds.\nThe HTTP client retries failed requests at most 2 times, with a 500 millisecond delay between retries.\nThese HTTP settings do not define database transaction retries.",
+          "similarity": 0.3906960850539164,
+          "truncated": false
+        }
+      ],
+      "elapsed_seconds": 1.324,
+      "retrieval": {
+        "precision": 0.25,
+        "evidence_recall": 1.0
+      }
+    },
+    {
+      "case_id": "http-settings",
+      "question": "What are the AtlasDocs HTTP read timeout and retry settings?",
+      "expected_status": "answered",
+      "reference_answer": "30-second read timeout; at most 2 retries; 500 ms delay.",
+      "gold_evidence": [
+        {
+          "document": "timeouts.md",
+          "quote": "The AtlasDocs HTTP client read timeout is 30 seconds."
+        },
+        {
+          "document": "timeouts.md",
+          "quote": "The HTTP client retries failed requests at most 2 times, with a 500 millisecond delay between retries."
+        }
+      ],
+      "document_filter": null,
+      "answer": "The AtlasDocs HTTP client read timeout is 30 seconds, and failed requests are retried at most 2 times with a 500 millisecond delay between retries [S1].",
+      "citations": [
+        {
+          "label": "S1",
+          "chunk_id": "6729bddd-aa59-4819-a4a7-49621d007189",
+          "document_id": "c57b2f5c-2bc7-4498-9d33-f5441be879ff",
+          "filename": "timeouts.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs HTTP client\n\nThe AtlasDocs HTTP client read timeout is 30 seconds.\nThe HTTP client retries failed requests at most 2 times, with a 500 millisecond delay between retries.\nThese HTTP settings do not define database transaction retries.",
+          "similarity": 0.8076202399391182,
+          "truncated": false
+        }
+      ],
+      "error": null,
+      "status": "answered",
+      "context": [
+        {
+          "label": "S1",
+          "chunk_id": "6729bddd-aa59-4819-a4a7-49621d007189",
+          "document_id": "c57b2f5c-2bc7-4498-9d33-f5441be879ff",
+          "filename": "timeouts.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs HTTP client\n\nThe AtlasDocs HTTP client read timeout is 30 seconds.\nThe HTTP client retries failed requests at most 2 times, with a 500 millisecond delay between retries.\nThese HTTP settings do not define database transaction retries.",
+          "similarity": 0.8076202399391182,
+          "truncated": false
+        },
+        {
+          "label": "S2",
+          "chunk_id": "ba0a18ef-39cd-427c-83ba-7c9de9681435",
+          "document_id": "b297a19b-1474-4419-b213-829b9b656102",
+          "filename": "security.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs credentials\n\nThe AtlasDocs API uses an Authorization: Bearer header for authentication.\nStore API keys on the backend only. Never put API keys in frontend bundles or version control.\nThe server reads credentials from its environment.",
+          "similarity": 0.5442741566031175,
+          "truncated": false
+        },
+        {
+          "label": "S3",
+          "chunk_id": "08941697-7e94-4752-a1b9-026f32466ab6",
+          "document_id": "58a59631-fe7a-47b4-81da-4f43f5cac7dc",
+          "filename": "uploads-v2.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 2\n\nIn AtlasDocs version 2, the maximum upload size is 10 MiB.\nVersion 2 accepts UTF-8 TXT, Markdown, and text-based PDF files.\nScanned PDFs are unsupported because version 2 has no OCR.\nOversized uploads return HTTP 413. Unsupported file formats return HTTP 415.\nThese rules apply only to version 2.",
+          "similarity": 0.44569001606315695,
+          "truncated": false
+        },
+        {
+          "label": "S4",
+          "chunk_id": "04f2ad7d-e98f-417f-9abd-1957f6ee8730",
+          "document_id": "4b21d8a2-e24f-4894-9389-febddcdfe1ee",
+          "filename": "uploads-v1.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 1\n\nAtlasDocs is a fictional documentation service.\nIn AtlasDocs version 1, the maximum upload size is 2 MiB.\nVersion 1 accepts TXT and Markdown files.\nThese limits apply only to version 1; see the version 2 guide for version 2 limits.",
+          "similarity": 0.4142025730315706,
+          "truncated": false
+        },
+        {
+          "label": "S5",
+          "chunk_id": "6ebd24ed-3080-4de9-b060-eee1cdd456d6",
+          "document_id": "14dd2a72-ae05-4c55-8ab3-b6ef1a08c7fb",
+          "filename": "transactions.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDB transaction guide\n\nAtlasDB is a fictional service used only for evaluation.\nStart a transaction with BEGIN. COMMIT makes its changes permanent.\nUse ROLLBACK to discard uncommitted changes in the current transaction after an error.\nROLLBACK cannot undo changes after COMMIT. Recovery after a commit requires restoring a backup.\nThis guide does not specify automatic database transaction retries.",
+          "similarity": 0.36775518867435386,
+          "truncated": false
+        }
+      ],
+      "elapsed_seconds": 1.386,
+      "retrieval": {
+        "precision": 0.2,
+        "evidence_recall": 1.0
+      }
+    },
+    {
+      "case_id": "two-documents",
+      "question": "How do I discard uncommitted AtlasDB changes, and what is the AtlasDocs HTTP read timeout?",
+      "expected_status": "answered",
+      "reference_answer": "Use ROLLBACK; the HTTP read timeout is 30 seconds.",
+      "gold_evidence": [
+        {
+          "document": "transactions.md",
+          "quote": "Use ROLLBACK to discard uncommitted changes in the current transaction after an error."
+        },
+        {
+          "document": "timeouts.md",
+          "quote": "The AtlasDocs HTTP client read timeout is 30 seconds."
+        }
+      ],
+      "document_filter": [
+        "transactions.md",
+        "timeouts.md"
+      ],
+      "answer": "Use ROLLBACK to discard uncommitted changes in the current transaction after an error [S2]. The AtlasDocs HTTP client read timeout is 30 seconds [S1].",
+      "citations": [
+        {
+          "label": "S1",
+          "chunk_id": "6729bddd-aa59-4819-a4a7-49621d007189",
+          "document_id": "c57b2f5c-2bc7-4498-9d33-f5441be879ff",
+          "filename": "timeouts.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs HTTP client\n\nThe AtlasDocs HTTP client read timeout is 30 seconds.\nThe HTTP client retries failed requests at most 2 times, with a 500 millisecond delay between retries.\nThese HTTP settings do not define database transaction retries.",
+          "similarity": 0.683943073984569,
+          "truncated": false
+        },
+        {
+          "label": "S2",
+          "chunk_id": "6ebd24ed-3080-4de9-b060-eee1cdd456d6",
+          "document_id": "14dd2a72-ae05-4c55-8ab3-b6ef1a08c7fb",
+          "filename": "transactions.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDB transaction guide\n\nAtlasDB is a fictional service used only for evaluation.\nStart a transaction with BEGIN. COMMIT makes its changes permanent.\nUse ROLLBACK to discard uncommitted changes in the current transaction after an error.\nROLLBACK cannot undo changes after COMMIT. Recovery after a commit requires restoring a backup.\nThis guide does not specify automatic database transaction retries.",
+          "similarity": 0.589705281529303,
+          "truncated": false
+        }
+      ],
+      "error": null,
+      "status": "answered",
+      "context": [
+        {
+          "label": "S1",
+          "chunk_id": "6729bddd-aa59-4819-a4a7-49621d007189",
+          "document_id": "c57b2f5c-2bc7-4498-9d33-f5441be879ff",
+          "filename": "timeouts.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs HTTP client\n\nThe AtlasDocs HTTP client read timeout is 30 seconds.\nThe HTTP client retries failed requests at most 2 times, with a 500 millisecond delay between retries.\nThese HTTP settings do not define database transaction retries.",
+          "similarity": 0.683943073984569,
+          "truncated": false
+        },
+        {
+          "label": "S2",
+          "chunk_id": "6ebd24ed-3080-4de9-b060-eee1cdd456d6",
+          "document_id": "14dd2a72-ae05-4c55-8ab3-b6ef1a08c7fb",
+          "filename": "transactions.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDB transaction guide\n\nAtlasDB is a fictional service used only for evaluation.\nStart a transaction with BEGIN. COMMIT makes its changes permanent.\nUse ROLLBACK to discard uncommitted changes in the current transaction after an error.\nROLLBACK cannot undo changes after COMMIT. Recovery after a commit requires restoring a backup.\nThis guide does not specify automatic database transaction retries.",
+          "similarity": 0.589705281529303,
+          "truncated": false
+        }
+      ],
+      "elapsed_seconds": 1.697,
+      "retrieval": {
+        "precision": 1.0,
+        "evidence_recall": 1.0
+      }
+    },
+    {
+      "case_id": "missing-retries",
+      "question": "How many times does AtlasDB automatically retry a failed database transaction?",
+      "expected_status": "insufficient_evidence",
+      "reference_answer": "Decline: HTTP retry settings do not specify database transaction retries.",
+      "gold_evidence": [],
+      "document_filter": null,
+      "answer": "I don't have enough evidence in the retrieved documents to answer this question.",
+      "citations": [],
+      "error": null,
+      "status": "insufficient_evidence",
+      "context": [
+        {
+          "label": "S1",
+          "chunk_id": "6729bddd-aa59-4819-a4a7-49621d007189",
+          "document_id": "c57b2f5c-2bc7-4498-9d33-f5441be879ff",
+          "filename": "timeouts.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs HTTP client\n\nThe AtlasDocs HTTP client read timeout is 30 seconds.\nThe HTTP client retries failed requests at most 2 times, with a 500 millisecond delay between retries.\nThese HTTP settings do not define database transaction retries.",
+          "similarity": 0.6547610759735107,
+          "truncated": false
+        },
+        {
+          "label": "S2",
+          "chunk_id": "6ebd24ed-3080-4de9-b060-eee1cdd456d6",
+          "document_id": "14dd2a72-ae05-4c55-8ab3-b6ef1a08c7fb",
+          "filename": "transactions.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDB transaction guide\n\nAtlasDB is a fictional service used only for evaluation.\nStart a transaction with BEGIN. COMMIT makes its changes permanent.\nUse ROLLBACK to discard uncommitted changes in the current transaction after an error.\nROLLBACK cannot undo changes after COMMIT. Recovery after a commit requires restoring a backup.\nThis guide does not specify automatic database transaction retries.",
+          "similarity": 0.5605107712897891,
+          "truncated": false
+        },
+        {
+          "label": "S3",
+          "chunk_id": "ba0a18ef-39cd-427c-83ba-7c9de9681435",
+          "document_id": "b297a19b-1474-4419-b213-829b9b656102",
+          "filename": "security.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs credentials\n\nThe AtlasDocs API uses an Authorization: Bearer header for authentication.\nStore API keys on the backend only. Never put API keys in frontend bundles or version control.\nThe server reads credentials from its environment.",
+          "similarity": 0.37694443395568245,
+          "truncated": false
+        },
+        {
+          "label": "S4",
+          "chunk_id": "08941697-7e94-4752-a1b9-026f32466ab6",
+          "document_id": "58a59631-fe7a-47b4-81da-4f43f5cac7dc",
+          "filename": "uploads-v2.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 2\n\nIn AtlasDocs version 2, the maximum upload size is 10 MiB.\nVersion 2 accepts UTF-8 TXT, Markdown, and text-based PDF files.\nScanned PDFs are unsupported because version 2 has no OCR.\nOversized uploads return HTTP 413. Unsupported file formats return HTTP 415.\nThese rules apply only to version 2.",
+          "similarity": 0.3527662754058838,
+          "truncated": false
+        }
+      ],
+      "elapsed_seconds": 1.24,
+      "retrieval": {
+        "precision": null,
+        "evidence_recall": null
+      }
+    },
+    {
+      "case_id": "unspecified-version",
+      "question": "What is the AtlasDocs maximum upload size? I do not know which version I use.",
+      "expected_status": "insufficient_evidence",
+      "reference_answer": "Decline: version 1 and version 2 have different limits, and the version is unspecified.",
+      "gold_evidence": [
+        {
+          "document": "uploads-v1.md",
+          "quote": "In AtlasDocs version 1, the maximum upload size is 2 MiB."
+        },
+        {
+          "document": "uploads-v2.md",
+          "quote": "In AtlasDocs version 2, the maximum upload size is 10 MiB."
+        }
+      ],
+      "document_filter": [
+        "uploads-v1.md",
+        "uploads-v2.md"
+      ],
+      "answer": "AtlasDocs maximum upload size depends on the version: version 1 allows 2 MiB, and version 2 allows 10 MiB [S1][S2]. The excerpts do not say how to determine which version you use [S1][S2].",
+      "citations": [
+        {
+          "label": "S1",
+          "chunk_id": "04f2ad7d-e98f-417f-9abd-1957f6ee8730",
+          "document_id": "4b21d8a2-e24f-4894-9389-febddcdfe1ee",
+          "filename": "uploads-v1.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 1\n\nAtlasDocs is a fictional documentation service.\nIn AtlasDocs version 1, the maximum upload size is 2 MiB.\nVersion 1 accepts TXT and Markdown files.\nThese limits apply only to version 1; see the version 2 guide for version 2 limits.",
+          "similarity": 0.7688771944568883,
+          "truncated": false
+        },
+        {
+          "label": "S2",
+          "chunk_id": "08941697-7e94-4752-a1b9-026f32466ab6",
+          "document_id": "58a59631-fe7a-47b4-81da-4f43f5cac7dc",
+          "filename": "uploads-v2.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 2\n\nIn AtlasDocs version 2, the maximum upload size is 10 MiB.\nVersion 2 accepts UTF-8 TXT, Markdown, and text-based PDF files.\nScanned PDFs are unsupported because version 2 has no OCR.\nOversized uploads return HTTP 413. Unsupported file formats return HTTP 415.\nThese rules apply only to version 2.",
+          "similarity": 0.7409862279891968,
+          "truncated": false
+        }
+      ],
+      "error": null,
+      "status": "answered",
+      "context": [
+        {
+          "label": "S1",
+          "chunk_id": "04f2ad7d-e98f-417f-9abd-1957f6ee8730",
+          "document_id": "4b21d8a2-e24f-4894-9389-febddcdfe1ee",
+          "filename": "uploads-v1.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 1\n\nAtlasDocs is a fictional documentation service.\nIn AtlasDocs version 1, the maximum upload size is 2 MiB.\nVersion 1 accepts TXT and Markdown files.\nThese limits apply only to version 1; see the version 2 guide for version 2 limits.",
+          "similarity": 0.7688771944568883,
+          "truncated": false
+        },
+        {
+          "label": "S2",
+          "chunk_id": "08941697-7e94-4752-a1b9-026f32466ab6",
+          "document_id": "58a59631-fe7a-47b4-81da-4f43f5cac7dc",
+          "filename": "uploads-v2.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 2\n\nIn AtlasDocs version 2, the maximum upload size is 10 MiB.\nVersion 2 accepts UTF-8 TXT, Markdown, and text-based PDF files.\nScanned PDFs are unsupported because version 2 has no OCR.\nOversized uploads return HTTP 413. Unsupported file formats return HTTP 415.\nThese rules apply only to version 2.",
+          "similarity": 0.7409862279891968,
+          "truncated": false
+        }
+      ],
+      "elapsed_seconds": 4.743,
+      "retrieval": {
+        "precision": 1.0,
+        "evidence_recall": 1.0
+      }
+    },
+    {
+      "case_id": "unknown-runtime",
+      "question": "Which Python version does AtlasDocs require?",
+      "expected_status": "insufficient_evidence",
+      "reference_answer": "Decline: no document specifies a Python runtime version.",
+      "gold_evidence": [],
+      "document_filter": null,
+      "answer": "I don't have enough evidence in the retrieved documents to answer this question.",
+      "citations": [],
+      "error": null,
+      "status": "insufficient_evidence",
+      "context": [
+        {
+          "label": "S1",
+          "chunk_id": "ba0a18ef-39cd-427c-83ba-7c9de9681435",
+          "document_id": "b297a19b-1474-4419-b213-829b9b656102",
+          "filename": "security.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs credentials\n\nThe AtlasDocs API uses an Authorization: Bearer header for authentication.\nStore API keys on the backend only. Never put API keys in frontend bundles or version control.\nThe server reads credentials from its environment.",
+          "similarity": 0.5833720142654187,
+          "truncated": false
+        },
+        {
+          "label": "S2",
+          "chunk_id": "04f2ad7d-e98f-417f-9abd-1957f6ee8730",
+          "document_id": "4b21d8a2-e24f-4894-9389-febddcdfe1ee",
+          "filename": "uploads-v1.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 1\n\nAtlasDocs is a fictional documentation service.\nIn AtlasDocs version 1, the maximum upload size is 2 MiB.\nVersion 1 accepts TXT and Markdown files.\nThese limits apply only to version 1; see the version 2 guide for version 2 limits.",
+          "similarity": 0.5573207472157934,
+          "truncated": false
+        },
+        {
+          "label": "S3",
+          "chunk_id": "08941697-7e94-4752-a1b9-026f32466ab6",
+          "document_id": "58a59631-fe7a-47b4-81da-4f43f5cac7dc",
+          "filename": "uploads-v2.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs uploads — version 2\n\nIn AtlasDocs version 2, the maximum upload size is 10 MiB.\nVersion 2 accepts UTF-8 TXT, Markdown, and text-based PDF files.\nScanned PDFs are unsupported because version 2 has no OCR.\nOversized uploads return HTTP 413. Unsupported file formats return HTTP 415.\nThese rules apply only to version 2.",
+          "similarity": 0.5187413692474365,
+          "truncated": false
+        },
+        {
+          "label": "S4",
+          "chunk_id": "6729bddd-aa59-4819-a4a7-49621d007189",
+          "document_id": "c57b2f5c-2bc7-4498-9d33-f5441be879ff",
+          "filename": "timeouts.md",
+          "position": 0,
+          "source_page": null,
+          "text": "# AtlasDocs HTTP client\n\nThe AtlasDocs HTTP client read timeout is 30 seconds.\nThe HTTP client retries failed requests at most 2 times, with a 500 millisecond delay between retries.\nThese HTTP settings do not define database transaction retries.",
+          "similarity": 0.40545129776000977,
+          "truncated": false
+        }
+      ],
+      "elapsed_seconds": 0.89,
+      "retrieval": {
+        "precision": null,
+        "evidence_recall": null
+      }
+    }
+  ],
+  "finished_at": "2026-10-09T10:45:58.960269+00:00",
+  "database_removed": true
+}

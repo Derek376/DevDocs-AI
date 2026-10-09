@@ -3,11 +3,12 @@
 A technical documentation assistant that retrieves relevant passages from uploaded
 documents and uses a language model to produce answers with source citations.
 
-**Status:** Milestone 7 — RAG quality controls complete. Retrieval count,
-document/format filters, similarity gating, duplicate/overlap cleanup, and stronger
-evidence-refusal instructions are implemented. OpenAI and Ollama remain replaceable
-generation providers. These controls need calibration and quality measurement in
-Milestone 8; they do not make model answers automatically correct.
+**Status:** Milestone 8 — evaluation complete. A nine-question synthetic dataset,
+isolated live runner, offline scorer, claim review rubric and recorded baseline
+measure retrieval relevance, answer groundedness and citation correctness. The
+baseline preserves a refusal-policy mismatch and overly broad citation groups;
+these measurements do not establish general model accuracy. See
+[evaluation instructions and results](evaluation/README.md).
 This project is built one milestone at a time, with explanations and verification
 before continuing.
 
@@ -163,6 +164,7 @@ DevDocs AI/
 │   ├── uv.lock              # exact resolved dependency versions
 │   ├── alembic.ini          # migration configuration
 │   ├── migrations/          # env.py, revision template, and versioned schema
+│   ├── evals/               # dataset validation, live runner, scoring CLI
 │   ├── app/
 │   │   ├── __init__.py
 │   │   ├── main.py          # create_app factory
@@ -211,8 +213,14 @@ DevDocs AI/
 │       ├── test_openai_llm.py
 │       ├── test_rag.py
 │       ├── test_retrieval_quality.py
+│       ├── test_evaluation.py
 │       └── integration/
 │           └── test_database.py
+├── evaluation/
+│   ├── README.md            # scoring definitions, review rubric, limitations
+│   ├── dataset.json         # questions, expected status and stable gold quotes
+│   ├── corpus/              # six fictional documentation files
+│   └── baseline/            # recorded run, claim review and metric summary
 └── frontend/
     ├── package.json         # dev, build, lint, and test commands
     ├── package-lock.json    # exact npm dependency versions
@@ -354,8 +362,8 @@ precedence, rejection of invalid environments, and settings supplied to the
 application factory. Fixtures isolate tests from developer environment settings.
 Frontend checks are documented below. The backend is not built as a Python package.
 
-Without `TEST_DATABASE_URL`, 26 database integration cases are explicitly skipped;
-154 non-integration tests still run. To exercise all 180 tests against the local
+Without `TEST_DATABASE_URL`, 27 database integration cases are explicitly skipped;
+177 non-integration tests still run. To exercise all 204 tests against the local
 Compose database, run this from `backend/` (it reads `.env` without printing the
 password):
 
@@ -398,19 +406,34 @@ and [uv projects](https://docs.astral.sh/uv/guides/projects/).
 | 3 | Validated uploads, text extraction, metadata, chunking | Complete |
 | 4 | Embeddings, vector persistence, semantic retrieval | Complete |
 | 5 | Basic RAG pipeline with source citations | Complete |
-| 6 | React upload, document list, questions, answers, and sources | Planned |
+| 6 | React upload, document list, questions, answers, and sources | Complete |
 | 7 | Retrieval settings, filters, context cleanup, insufficient-evidence handling | Complete |
-| 8 | Evaluation dataset: retrieval relevance, groundedness, citation correctness | Planned |
+| 8 | Evaluation dataset: retrieval relevance, groundedness, citation correctness | Complete |
 | 9 | Service containers, CI, automated checks, logging, error/secrets handling | Planned |
 | 10 | Simple assistant using retrieval, metadata, and summary tools | Planned |
 | 11 | Setup guide, screenshots, API docs, decisions, limitations, interview notes | Planned |
 
-## Evaluation — planned
+## Evaluation — Milestone 8
 
-Use a small versioned document/question dataset with expected supporting chunks.
-Measure retrieval relevance separately from answer groundedness and citation
-correctness so a fluent answer cannot hide poor retrieval. Include unanswerable
-questions. Definitions, scoring, and results arrive in Milestone 8.
+A versioned six-document corpus and nine questions include missing and ambiguous
+evidence. The opt-in runner uses the production ingestion/indexing/RAG services
+in a disposable PostgreSQL database and records the exact context supplied to
+the model. Offline scoring separates quote-based retrieval metrics, deterministic
+citation validity, and manually reviewed semantic support. Pending reviews remain
+unscored; review fingerprints prevent grading a changed run with old judgements.
+
+The recorded `gpt-5.4-mini`/`embeddinggemma` baseline has 63.6% macro retrieval
+precision and 100% evidence recall across seven gold-labelled cases. One Codex
+manual review found 15/15 claims grounded and 16/18 individual citation pairs
+supporting their associated claim. Expected answer/refusal status matched 8/9
+cases; the remaining answer explained both version limits instead of declining.
+This is a policy mismatch, not invented evidence. The tiny synthetic dataset and
+single reviewer cannot establish general accuracy.
+
+See [the evaluation guide](evaluation/README.md) for runnable commands, exact
+denominators, review instructions, saved artifacts, limitations and interview
+talking points. No runtime API, frontend, model or prompt behaviour changes in
+this milestone.
 
 ## Limitations and future work
 
