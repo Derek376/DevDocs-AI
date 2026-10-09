@@ -73,7 +73,7 @@ export default function AnswerCard({
               </summary>
               {source.truncated && (
                 <p className="muted">
-                  Excerpt shortened to fit the model context.
+                  Excerpt shortened during context selection.
                 </p>
               )}
               <blockquote>{source.text}</blockquote>

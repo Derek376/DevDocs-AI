@@ -1,7 +1,12 @@
+import { useState } from 'react'
+import type { Document } from './api'
 import DocumentPanel from './components/DocumentPanel'
 import QuestionPanel from './components/QuestionPanel'
 
 export default function App() {
+  const [selectedDocument, setSelectedDocument] = useState<Document | null>(
+    null,
+  )
   return (
     <div className="app-shell">
       <header className="site-header">
@@ -27,8 +32,14 @@ export default function App() {
           </p>
         </section>
         <div className="workspace">
-          <DocumentPanel />
-          <QuestionPanel />
+          <DocumentPanel
+            selectedDocumentId={selectedDocument?.id}
+            onSelectDocument={setSelectedDocument}
+          />
+          <QuestionPanel
+            selectedDocument={selectedDocument}
+            onClearDocument={() => setSelectedDocument(null)}
+          />
         </div>
       </main>
       <footer>

@@ -314,7 +314,9 @@ class KnownVectorProvider:
 def test_index_and_cosine_search_exclude_unindexed_and_incompatible_chunks(
     database_engine: Engine,
 ) -> None:
-    app = create_app(settings_for(database_engine))
+    settings = settings_for(database_engine)
+    settings.retrieval_min_similarity = 0.0
+    app = create_app(settings)
     app.dependency_overrides[get_embedding_provider] = lambda: KnownVectorProvider()
     with TestClient(app) as client:
         ids = []
@@ -522,3 +524,126 @@ def test_hallucinated_citation_is_not_returned_as_an_answer(
         assert result.status_code == 502
         assert "answer" not in result.json()
         assert "citations" in result.json()["detail"]
+
+
+def test_metadata_filters_apply_before_limit_and_can_return_no_evidence(
+    database_engine: Engine,
+) -> None:
+    app = create_app(settings_for(database_engine))
+    app.dependency_overrides[get_embedding_provider] = lambda: KnownVectorProvider()
+
+    class SourceUsingLLM:
+        model_id = "test:llm"
+
+        async def generate(self, system_prompt, user_prompt):
+            import json
+
+            sources = json.loads(user_prompt)["sources"]
+            assert len(sources) == 1
+            assert sources[0]["filename"] == "selected.md"
+            return GeneratedAnswer(
+                answer="Selected documentation [S1].", citation_labels=["S1"]
+            )
+
+    app.dependency_overrides[get_llm_provider] = lambda: SourceUsingLLM()
+    with TestClient(app) as client:
+        ids = []
+        for filename, content, media_type in [
+            ("other.txt", b"Database transaction documentation", "text/plain"),
+            ("selected.md", b"Database rollback guide", "text/markdown"),
+            ("weak.txt", b"UI button styles", "text/plain"),
+        ]:
+            upload = client.post(
+                "/documents", files={"file": (filename, content, media_type)}
+            )
+            assert upload.status_code == 201
+            ids.append(upload.json()["id"])
+            assert client.post(f"/documents/{ids[-1]}/index").status_code == 200
+        # The excluded document is closer than the selected one. Post-limit filtering
+        # would lose the selected match instead of returning it.
+        with Session(database_engine) as session:
+            chunk = session.scalar(
+                select(Chunk).where(Chunk.document_id == UUID(ids[1]))
+            )
+            chunk.embedding = [0.8, 0.6]
+            session.commit()
+        query = {
+            "question": "database",
+            "top_k": 1,
+            "document_ids": [ids[1]],
+            "media_type": "text/markdown",
+        }
+        matches = client.post("/search", json=query).json()["matches"]
+        assert [match["document_id"] for match in matches] == [ids[1]]
+        assert matches[0]["similarity"] == pytest.approx(0.8)
+        result = client.post("/questions", json=query)
+        assert result.status_code == 200, result.text
+        assert result.json()["citations"][0]["document_id"] == ids[1]
+        assert (
+            client.post("/search", json={"question": "database", "top_k": 1}).json()[
+                "matches"
+            ][0]["document_id"]
+            == ids[0]
+        )
+        for options in [
+            {"document_ids": [ids[1]], "media_type": "application/pdf"},
+            {"document_ids": [str(uuid4())]},
+            {"document_ids": [ids[2]]},
+        ]:
+            result = client.post("/questions", json={"question": "database", **options})
+            assert result.status_code == 200, result.text
+            assert result.json()["status"] == "insufficient_evidence"
+            assert result.json()["citations"] == []
+
+
+def test_rag_fetches_past_duplicates_to_fill_useful_source_slots(
+    database_engine: Engine,
+) -> None:
+    import json
+
+    app = create_app(settings_for(database_engine))
+    app.dependency_overrides[get_embedding_provider] = lambda: KnownVectorProvider()
+
+    class CheckingLLM:
+        model_id = "test:llm"
+
+        async def generate(self, system_prompt, user_prompt):
+            sources = json.loads(user_prompt)["sources"]
+            assert [source["text"] for source in sources] == [
+                "Database transaction overview.",
+                "Database rollback instructions.",
+            ]
+            assert [source["label"] for source in sources] == ["S1", "S2"]
+            return GeneratedAnswer(
+                answer="Rollback instructions [S2].", citation_labels=["S2"]
+            )
+
+    app.dependency_overrides[get_llm_provider] = lambda: CheckingLLM()
+    with TestClient(app) as client:
+        ids = []
+        for index, content in enumerate(
+            [
+                b"Database transaction overview.",
+                b"Database transaction overview.",
+                b"Database rollback instructions.",
+            ]
+        ):
+            upload = client.post(
+                "/documents",
+                files={"file": (f"doc-{index}.txt", content, "text/plain")},
+            )
+            ids.append(upload.json()["id"])
+            assert client.post(f"/documents/{ids[-1]}/index").status_code == 200
+        with Session(database_engine) as session:
+            for document_id, vector in zip(
+                ids, [[1, 0], [0.99, 0.1], [0.8, 0.6]], strict=True
+            ):
+                chunk = session.scalar(
+                    select(Chunk).where(Chunk.document_id == UUID(document_id))
+                )
+                chunk.embedding = vector
+            session.commit()
+        result = client.post("/questions", json={"question": "database", "top_k": 2})
+        assert result.status_code == 200, result.text
+        assert result.json()["citations"][0]["document_id"] == ids[2]
+        assert result.json()["citations"][0]["label"] == "S2"

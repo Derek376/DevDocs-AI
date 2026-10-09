@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="llama3.2:1b", min_length=1, max_length=200)
     llm_timeout_seconds: float = Field(default=120, gt=0, le=600)
     openai_api_key: SecretStr | None = None
+    retrieval_top_k: int = Field(default=5, ge=1, le=20)
+    retrieval_min_similarity: float = Field(default=0.35, ge=0, le=1)
 
     @field_validator("openai_api_key", mode="before")
     @classmethod

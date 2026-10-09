@@ -48,9 +48,20 @@ class AnswerResponse(BaseModel):
 @router.post("/questions", summary="Answer a question using indexed documents")
 async def ask_question(
     body: SearchRequest,
+    request: Request,
     session: SessionDependency,
     embeddings: ProviderDependency,
     llm: LLMDependency,
 ) -> AnswerResponse:
-    result = await answer_question(session, body.question, embeddings, llm)
+    settings = request.app.state.settings
+    result = await answer_question(
+        session,
+        body.question,
+        embeddings,
+        llm,
+        top_k=body.top_k or settings.retrieval_top_k,
+        min_similarity=settings.retrieval_min_similarity,
+        document_ids=body.document_ids,
+        media_type=body.media_type,
+    )
     return AnswerResponse.model_validate(result)

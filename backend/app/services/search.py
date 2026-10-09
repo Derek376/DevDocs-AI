@@ -60,7 +60,22 @@ async def index_document(
 
 
 async def search_documents(
-    session: AsyncSession, question: str, provider: EmbeddingProvider, limit: int
+    session: AsyncSession,
+    question: str,
+    provider: EmbeddingProvider,
+    limit: int,
+    *,
+    document_ids: list[UUID] | None = None,
+    media_type: str | None = None,
+    min_similarity: float = 0.35,
 ) -> list[tuple[Chunk, str, float]]:
     vectors = validate_vectors(await provider.embed([question]), 1, provider.dimensions)
-    return await find_matches(session, vectors[0], provider.model_id, limit)
+    return await find_matches(
+        session,
+        vectors[0],
+        provider.model_id,
+        limit,
+        document_ids=document_ids,
+        media_type=media_type,
+        min_similarity=min_similarity,
+    )

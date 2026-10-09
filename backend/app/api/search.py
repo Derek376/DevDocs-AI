@@ -1,6 +1,6 @@
 """Embedding indexing and semantic retrieval endpoints."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -30,6 +30,9 @@ class IndexResponse(BaseModel):
 class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=2000)
+    top_k: int | None = Field(default=None, ge=1, le=20, strict=True)
+    document_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=50)
+    media_type: Literal["text/plain", "text/markdown", "application/pdf"] | None = None
 
     @field_validator("question")
     @classmethod
@@ -80,9 +83,21 @@ async def index(
 
 @router.post("/search")
 async def search(
-    body: SearchRequest, session: SessionDependency, provider: ProviderDependency
+    body: SearchRequest,
+    request: Request,
+    session: SessionDependency,
+    provider: ProviderDependency,
 ) -> SearchResponse:
-    rows = await search_documents(session, body.question, provider, limit=5)
+    settings = request.app.state.settings
+    rows = await search_documents(
+        session,
+        body.question,
+        provider,
+        limit=body.top_k or settings.retrieval_top_k,
+        document_ids=body.document_ids,
+        media_type=body.media_type,
+        min_similarity=settings.retrieval_min_similarity,
+    )
     return SearchResponse(
         model=provider.model_id,
         matches=[

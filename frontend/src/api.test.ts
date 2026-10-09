@@ -73,3 +73,23 @@ describe('API boundaries', () => {
     )
   })
 })
+
+it('sends retrieval options with the question', async () => {
+  respond({ answer: '', citations: [], status: 'insufficient_evidence' })
+  await askQuestion('Question', {
+    top_k: 3,
+    document_ids: ['doc-1'],
+    media_type: 'application/pdf',
+  })
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/api/questions',
+    expect.objectContaining({
+      body: JSON.stringify({
+        question: 'Question',
+        top_k: 3,
+        document_ids: ['doc-1'],
+        media_type: 'application/pdf',
+      }),
+    }),
+  )
+})

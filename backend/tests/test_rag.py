@@ -98,7 +98,13 @@ def test_rag_orchestration_prompt_boundary_and_decline(
     )
     session.rollback.assert_awaited_once()
     retrieve.assert_awaited_once_with(
-        session, "How do I undo changes?", embeddings, limit=5
+        session,
+        "How do I undo changes?",
+        embeddings,
+        limit=15,
+        document_ids=None,
+        media_type=None,
+        min_similarity=0.35,
     )
     if case == "no_sources":
         llm.generate.assert_not_awaited()

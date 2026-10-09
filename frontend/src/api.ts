@@ -110,11 +110,22 @@ export function indexDocument(id: string): Promise<IndexResult> {
   })
 }
 
-export function askQuestion(question: string): Promise<Answer> {
+export type MediaType = 'text/plain' | 'text/markdown' | 'application/pdf'
+
+export interface RetrievalOptions {
+  top_k?: number
+  document_ids?: string[]
+  media_type?: MediaType
+}
+
+export function askQuestion(
+  question: string,
+  options: RetrievalOptions = {},
+): Promise<Answer> {
   return request('/questions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, ...options }),
   })
 }
 

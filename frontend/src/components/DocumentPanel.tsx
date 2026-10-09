@@ -9,7 +9,13 @@ import {
 } from '../api'
 import type { Document } from '../api'
 
-export default function DocumentPanel() {
+export default function DocumentPanel({
+  selectedDocumentId,
+  onSelectDocument,
+}: {
+  selectedDocumentId?: string
+  onSelectDocument: (document: Document) => void
+}) {
   const [documents, setDocuments] = useState<Document[]>([])
   const [page, setPage] = useState(0)
   const [revision, setRevision] = useState(0)
@@ -197,6 +203,17 @@ export default function DocumentPanel() {
                 aria-label={`Index for search: ${document.filename}`}
               >
                 Index for search
+              </button>
+              <button
+                className="text-button"
+                disabled={document.status !== 'ready'}
+                aria-pressed={selectedDocumentId === document.id}
+                aria-label={`Use for questions: ${document.filename}`}
+                onClick={() => onSelectDocument(document)}
+              >
+                {selectedDocumentId === document.id
+                  ? 'Selected for questions'
+                  : 'Use for questions'}
               </button>
             </li>
           ))}

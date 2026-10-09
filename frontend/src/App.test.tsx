@@ -53,14 +53,12 @@ const result: Answer = {
 beforeEach(() => {
   vi.mocked(api.listDocuments).mockReset().mockResolvedValue([])
   vi.mocked(api.uploadDocument).mockReset().mockResolvedValue(document)
-  vi.mocked(api.indexDocument)
-    .mockReset()
-    .mockResolvedValue({
-      document_id: document.id,
-      embedded_chunk_count: 1,
-      dimensions: 768,
-      model: 'embeddinggemma',
-    })
+  vi.mocked(api.indexDocument).mockReset().mockResolvedValue({
+    document_id: document.id,
+    embedded_chunk_count: 1,
+    dimensions: 768,
+    model: 'embeddinggemma',
+  })
   vi.mocked(api.askQuestion).mockReset().mockResolvedValue(result)
   Object.defineProperty(Element.prototype, 'scrollIntoView', {
     configurable: true,
@@ -234,7 +232,7 @@ describe('documentation workspace', () => {
     ).toBeInTheDocument()
     expect(screen.getByLabelText('Your question')).toBeDisabled()
     await act(async () => resolve(result))
-    expect(api.askQuestion).toHaveBeenCalledWith('How do I undo changes?')
+    expect(api.askQuestion).toHaveBeenCalledWith('How do I undo changes?', {})
     const evidence = screen.getByText(result.citations[0].text)
     const details = evidence.closest('details')!
     expect(details.open).toBe(false)
@@ -306,8 +304,75 @@ describe('documentation workspace', () => {
     )
     expect(screen.getByText('<script>alert(1)</script>')).toBeInTheDocument()
     expect(
-      screen.getByText('Excerpt shortened to fit the model context.'),
+      screen.getByText('Excerpt shortened during context selection.'),
     ).toBeInTheDocument()
     expect(screen.getByRole('article').querySelector('img, script')).toBeNull()
   })
+})
+
+it('selects a document and format for questions, then restores server defaults', async () => {
+  const user = userEvent.setup()
+  vi.mocked(api.listDocuments).mockResolvedValue([document])
+  render(<App />)
+  await user.click(
+    await screen.findByRole('button', {
+      name: 'Use for questions: transactions.md',
+    }),
+  )
+  await user.type(screen.getByLabelText('Maximum source chunks'), '3')
+  await user.selectOptions(
+    screen.getByLabelText('Document format'),
+    'text/markdown',
+  )
+  await user.type(
+    screen.getByLabelText('Your question'),
+    'How do I undo changes?',
+  )
+  await user.click(screen.getByRole('button', { name: /Ask question/ }))
+  await screen.findByRole('heading', { name: 'Generated answer' })
+  expect(api.askQuestion).toHaveBeenLastCalledWith('How do I undo changes?', {
+    top_k: 3,
+    document_ids: [document.id],
+    media_type: 'text/markdown',
+  })
+  expect(
+    screen.getByText('Scope used for this answer: transactions.md · Markdown'),
+  ).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Search all documents' }))
+  await user.clear(screen.getByLabelText('Maximum source chunks'))
+  await user.selectOptions(screen.getByLabelText('Document format'), '')
+  await user.click(screen.getByRole('button', { name: /Ask question/ }))
+  await screen.findByRole('heading', { name: 'Generated answer' })
+  expect(api.askQuestion).toHaveBeenLastCalledWith('How do I undo changes?', {})
+})
+
+it('keeps the scope of a displayed answer when the next question scope changes', async () => {
+  const user = userEvent.setup()
+  vi.mocked(api.listDocuments).mockResolvedValue([
+    document,
+    { ...document, id: 'doc-2', filename: 'other.md' },
+  ])
+  render(<App />)
+  await user.click(
+    await screen.findByRole('button', {
+      name: 'Use for questions: transactions.md',
+    }),
+  )
+  await user.type(
+    screen.getByLabelText('Your question'),
+    'How do I undo changes?',
+  )
+  await user.click(screen.getByRole('button', { name: /Ask question/ }))
+  await screen.findByRole('heading', { name: 'Generated answer' })
+  await user.click(
+    screen.getByRole('button', { name: 'Use for questions: other.md' }),
+  )
+  expect(
+    screen.getByText(
+      'Scope used for this answer: transactions.md · All formats',
+    ),
+  ).toBeInTheDocument()
+  expect(
+    screen.getByRole('button', { name: 'Use for questions: other.md' }),
+  ).toHaveAttribute('aria-pressed', 'true')
 })

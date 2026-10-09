@@ -27,8 +27,13 @@ citation_labels, listing the unique labels used in the answer (for example ["S1"
 The answer text MUST contain the [S1] style markers too; the labels array alone
 is not sufficient. Example output format:
 {"answer": "A fact supported by the source [S1].", "citation_labels": ["S1"]}
-If the sources do not support an answer, return an empty answer and
-empty citation_labels.
+First check whether the excerpts actually answer the requested question.
+A related topic or a high retrieval score is not sufficient evidence.
+If a required detail is missing, the excerpts are irrelevant, or sources conflict
+about the requested behaviour, return an empty answer and empty citation_labels.
+Refusal example: {"answer": "", "citation_labels": []}
+Do not fill missing details from memory, make guesses, or present assumptions as facts.
+Keep code, commands, version-specific details, and negation faithful to the sources.
 Do not invent references, instructions, configuration values, or missing details.
 """
 
@@ -56,16 +61,41 @@ class RagResult:
 
 
 def build_context(
-    rows: list[tuple[Chunk, str, float]], max_characters: int = MAX_CONTEXT_CHARACTERS
+    rows: list[tuple[Chunk, str, float]],
+    max_characters: int = MAX_CONTEXT_CHARACTERS,
+    *,
+    top_k: int = 5,
+    min_similarity: float = 0.35,
 ) -> list[Evidence]:
     sources: list[Evidence] = []
+    seen: set[str] = set()
     remaining = max_characters
     for chunk, filename, similarity in rows:
-        if remaining <= 0:
+        if remaining <= 0 or len(sources) >= top_k:
             break
-        excerpt = chunk.text[:remaining]
+        if similarity < min_similarity:
+            continue
+        # Preserve case and indentation: tiny code differences can change meaning.
+        fingerprint = chunk.text.replace("\r\n", "\n").strip("\n")
+        if fingerprint in seen or not fingerprint.strip():
+            continue
+        text = chunk.text
+        for previous in sources:
+            if (
+                previous.document_id == chunk.document_id
+                and previous.position + 1 == chunk.position
+                and previous.source_page == chunk.source_page
+            ):
+                # Trim only an exact, substantial boundary shared by adjacent chunks.
+                # The scan is bounded; this is not fuzzy similarity deduplication.
+                for length in range(min(len(previous.text), len(text), 1000), 79, -1):
+                    if previous.text.endswith(text[:length]):
+                        text = text[length:]
+                        break
+        excerpt = text[:remaining]
         if not excerpt.strip():
             continue
+        seen.add(fingerprint)
         sources.append(
             Evidence(
                 label=f"S{len(sources) + 1}",
@@ -99,9 +129,23 @@ async def answer_question(
     question: str,
     embeddings: EmbeddingProvider,
     llm: LLMProvider,
+    *,
+    top_k: int = 5,
+    min_similarity: float = 0.35,
+    document_ids: list[UUID] | None = None,
+    media_type: str | None = None,
 ) -> RagResult:
-    rows = await search_documents(session, question, embeddings, limit=5)
-    sources = build_context(rows)
+    # Fetch a bounded surplus so duplicates do not immediately consume top-k slots.
+    rows = await search_documents(
+        session,
+        question,
+        embeddings,
+        limit=top_k * 3,
+        document_ids=document_ids,
+        media_type=media_type,
+        min_similarity=min_similarity,
+    )
+    sources = build_context(rows, top_k=top_k, min_similarity=min_similarity)
     # The evidence is now plain data; release the read transaction before generation.
     await session.rollback()
     if not sources:

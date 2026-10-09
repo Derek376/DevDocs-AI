@@ -3,12 +3,11 @@
 A technical documentation assistant that retrieves relevant passages from uploaded
 documents and uses a language model to produce answers with source citations.
 
-**Status:** Milestone 6 — React frontend complete. The browser workspace supports
-upload, indexing, document browsing, independent questions, answers, and expandable
-source citations. Retrieval tuning and quality evaluation remain later milestones.
-Answer generation now supports OpenAI `gpt-5.4-mini` alongside local Ollama.
-Citation validation remains strict for both providers; invalid references are
-shown as useful errors rather than accepted as grounded responses.
+**Status:** Milestone 7 — RAG quality controls complete. Retrieval count,
+document/format filters, similarity gating, duplicate/overlap cleanup, and stronger
+evidence-refusal instructions are implemented. OpenAI and Ollama remain replaceable
+generation providers. These controls need calibration and quality measurement in
+Milestone 8; they do not make model answers automatically correct.
 This project is built one milestone at a time, with explanations and verification
 before continuing.
 
@@ -211,6 +210,7 @@ DevDocs AI/
 │       ├── test_llm.py
 │       ├── test_openai_llm.py
 │       ├── test_rag.py
+│       ├── test_retrieval_quality.py
 │       └── integration/
 │           └── test_database.py
 └── frontend/
@@ -286,6 +286,8 @@ directory. Copy `.env.example` to `.env` if you want to change defaults.
 | `LLM_MODEL` | `llama3.2:1b` | Generation model; use `gpt-5.4-mini` with OpenAI. |
 | `OPENAI_API_KEY` | unset | Backend-only secret for OpenAI generation; blank is treated as missing. |
 | `LLM_TIMEOUT_SECONDS` | `120` | Timeout per answer-generation request. |
+| `RETRIEVAL_TOP_K` | `5` | Default maximum source count, 1–20; request override available. |
+| `RETRIEVAL_MIN_SIMILARITY` | `0.35` | Minimum cosine similarity, 0–1; a heuristic, not confidence. |
 
 `APP_ENV` does not automatically enable production security or change logging.
 Logging and provider settings will be added when needed. Configuration
@@ -352,8 +354,8 @@ precedence, rejection of invalid environments, and settings supplied to the
 application factory. Fixtures isolate tests from developer environment settings.
 Frontend checks are documented below. The backend is not built as a Python package.
 
-Without `TEST_DATABASE_URL`, 24 database integration cases are explicitly skipped;
-118 non-integration tests still run. To exercise all 142 tests against the local
+Without `TEST_DATABASE_URL`, 26 database integration cases are explicitly skipped;
+154 non-integration tests still run. To exercise all 180 tests against the local
 Compose database, run this from `backend/` (it reads `.env` without printing the
 password):
 
@@ -397,7 +399,7 @@ and [uv projects](https://docs.astral.sh/uv/guides/projects/).
 | 4 | Embeddings, vector persistence, semantic retrieval | Complete |
 | 5 | Basic RAG pipeline with source citations | Complete |
 | 6 | React upload, document list, questions, answers, and sources | Planned |
-| 7 | Retrieval settings, filters, context cleanup, insufficient-evidence handling | Planned |
+| 7 | Retrieval settings, filters, context cleanup, insufficient-evidence handling | Complete |
 | 8 | Evaluation dataset: retrieval relevance, groundedness, citation correctness | Planned |
 | 9 | Service containers, CI, automated checks, logging, error/secrets handling | Planned |
 | 10 | Simple assistant using retrieval, metadata, and summary tools | Planned |
@@ -648,13 +650,13 @@ failed re-index retains its previous embeddings. Re-indexing deliberately replac
 all vectors, rather than assuming unchanged text means a provider/model is unchanged.
 There is one embedding per chunk, not an embedding history.
 
-`POST /search` embeds the question and returns up to five closest chunks, ordered
-by cosine distance. Each match contains the chunk/document UUIDs, filename, chunk
+`POST /search` embeds the question and returns the closest qualifying chunks,
+ordered by cosine distance (default maximum: five). Each match contains the chunk/document UUIDs, filename, chunk
 position, optional PDF page, source text, and similarity. Search returns an empty
 list when no compatible indexed chunks exist. Questions must contain text and
 be at most 2000 characters. Configurable retrieval counts, document filters, and
-minimum evidence thresholds wait for Milestone 7. This route returns retrieved
-sources only. Use `/questions`, introduced in Milestone 5, for generated answers.
+minimum evidence thresholds were added in Milestone 7; see the controls below.
+This route returns retrieved sources only. Use `/questions`, introduced in Milestone 5, for generated answers.
 
 ### Important code and design decisions
 
@@ -804,7 +806,7 @@ returns no citation labels, its uncited text is discarded. Both cases return
 HTTP 200 with `status: insufficient_evidence`, a fixed explanation, and no
 citations. `status: answered` means generation passed the citation contract;
 it is not a verified-groundedness score. This is a minimal safety baseline;
-retrieval relevance thresholds and more robust refusal behaviour remain Milestone 7.
+retrieval relevance thresholds and stronger refusal instructions were added in Milestone 7.
 
 Citation validity is not citation correctness: a referenced passage can exist and
 still fail to support a claim. We do not currently check every claim for semantic
@@ -962,7 +964,7 @@ responses can race. Trace a user action through React, HTTP, FastAPI, retrieval,
 generation, and citation rendering. Distinguish a recoverable provider failure
 from an insufficient-evidence result, and explain why deterministic UI tests and
 probabilistic RAG evaluation answer different questions. Quality improvements
-remain Milestone 7; evaluation remains Milestone 8.
+were added in Milestone 7 below; evaluation remains Milestone 8.
 
 
 ## Switch answer generation to OpenAI
@@ -1029,3 +1031,158 @@ Embeddings, retrieval, persistence, and the frontend retain their contracts.
 
 Sources: [GPT-5.4 Mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini),
 [structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+
+## Retrieval and evidence controls — Milestone 7
+
+### Why this change
+
+Nearest-neighbour search always ranks the available vectors, even when none are
+useful for the question. Returning more chunks can improve recall (finding needed
+evidence), but can also lower precision (the fraction of results that are useful).
+Repeated excerpts waste the limited context budget. A model can also encounter
+related documentation that does not contain the specific requested detail.
+
+This milestone makes retrieval choices explicit and adds deterministic gates plus
+stronger prompt instructions. No evaluation dataset, reranker, hybrid search,
+automatic citation repair, agent, or deployment/CI work is added.
+
+### Configuration and API contract
+
+Optional root `.env` settings, with defaults shown:
+
+```dotenv
+RETRIEVAL_TOP_K=5
+RETRIEVAL_MIN_SIMILARITY=0.35
+```
+
+Restart the backend after changing them. Existing question-only requests continue
+to work. Both `POST /search` and `POST /questions` accept:
+
+```json
+{
+  "question": "How do I undo changes after a transaction error?",
+  "top_k": 3,
+  "document_ids": ["00000000-0000-0000-0000-000000000001"],
+  "media_type": "text/markdown"
+}
+```
+
+Replace the example UUID with an uploaded document's UUID. All fields except
+`question` are optional. `top_k` must be an integer from 1 to 20, not a numeric
+string, fraction or boolean. An omitted/null count uses the configured default.
+`document_ids` accepts 1–50 UUIDs; an empty list is rejected rather than silently
+broadening the scope. Missing/nonexistent documents produce no matches.
+`media_type` supports `text/plain`, `text/markdown`, and `application/pdf`.
+Document IDs and format combine with AND; no result causes automatic filter
+relaxation. Invalid options return helpful HTTP 422 validation errors.
+
+Metadata filters and the similarity cutoff apply in PostgreSQL **before** ordering
+and limiting. Filtering an already-limited global result set could miss a valid
+selected-document match. All existing status/model/dimension checks still apply.
+Because SQL predicate evaluation order is not guaranteed, a `CASE` guards the
+vector distance calculation itself against incompatible vector lengths. The
+existing real-database compatibility test caught this issue when the distance
+predicate was introduced. See [SQLAlchemy filtering](https://docs.sqlalchemy.org/en/20/orm/queryguide/select.html).
+
+### Candidate count versus useful context
+
+`/search` returns up to `top_k` ranked, threshold-qualified raw matches. `/questions`
+retrieves up to `3 × top_k` candidates (at most 60), then selects at most `top_k`
+useful excerpts. This bounded surplus allows duplicates to be discarded without
+immediately exhausting every source slot. It does not guarantee enough distinct
+results: many duplicates can still consume the candidate pool, and the existing
+5000-character context cap may reduce the final source count.
+
+Context construction preserves retrieval order and stable document/chunk IDs:
+
+1. Exclude weak and empty passages.
+2. Remove exact duplicate text, normalizing only line endings and boundary newlines.
+   Preserve case and indentation; `return True` and `return true` are different.
+3. Trim exact shared boundaries of 80–1000 characters between consecutively
+   numbered chunks from the same document and PDF page, only when the earlier
+   chunk has already been selected. Short coincidental matches are retained.
+4. Apply the context budget and assign contiguous `S1`, `S2`, … labels afterwards.
+
+Only prompt excerpts change; stored chunks and embeddings are untouched. A
+shortened excerpt is marked `truncated`, including overlap removal. Each excerpt
+remains an actual contiguous substring of its source chunk. Reverse retrieval
+order, different pages/documents, and fuzzy near-duplicates are deliberately not
+merged. More aggressive cleanup could lose version differences or source meaning.
+Character budgeting is still a coarse bound, not an exact tokenizer budget.
+
+### Insufficient evidence and prompt changes
+
+If no selected passage reaches the cutoff, generation is skipped. The existing
+HTTP 200 `insufficient_evidence` response is returned with a fixed explanation and
+no citations. An LLM reply with no citation labels is also replaced with that
+explanation, so unsupported model text is not displayed.
+
+The prompt now explicitly distinguishes topic similarity from evidence that
+answers the question. It instructs the model to decline when a required detail is
+missing, excerpts are irrelevant, or sources conflict about the requested
+behaviour. It includes a concrete empty-answer/empty-label refusal example and
+asks the model to preserve commands, versions and negation. Citation-reference
+validation still runs for every accepted answer. No silent repair or weaker
+citation contract is introduced.
+
+The default `0.35` cutoff is an initial engineering heuristic for the local
+embedding baseline. Cosine scores are model-dependent and are **not probabilities
+of correctness**. A higher cutoff can reject useful evidence; a lower cutoff can
+admit irrelevant passages. A relevant-looking excerpt can still omit the requested
+answer. Prompt compliance and claim support are probabilistic; this milestone
+cannot guarantee refusal or semantic citation correctness. Calibrate and measure
+these behaviours using the Milestone 8 evaluation dataset.
+
+### Frontend controls and important code
+
+Select “Use for questions” on a library document to scope the next request to that
+document. “Search all documents” clears only the document selection. The format
+filter remains explicit; selecting a Markdown document and PDF format yields no
+evidence rather than searching elsewhere. The maximum-source input accepts 1–20
+or blank for the server default. Pending requests disable question controls, and
+the displayed answer retains the scope captured at submission even if the next
+question's scope changes. There is still no conversation memory.
+
+- API schemas in `api/search.py` validate shared retrieval options; both routes
+  pass options/defaults to services without doing SQL or context cleanup.
+- `persistence/search.py` owns SQL scope, model compatibility and cosine filtering.
+- `services/rag.py` owns bounded candidate retrieval, deterministic context
+  selection, evidence-aware prompts and citation resolution.
+- `App.tsx` owns the selected document and passes it to both panels. This is
+  lifting state to their common parent; no global store is needed. See
+  [React shared state](https://react.dev/learn/sharing-state-between-components).
+- `QuestionPanel.tsx` snapshots request options and display scope;
+  `api.ts` sends the optional fields through the existing HTTP client.
+
+Document filtering is a search feature, not an authorization boundary. The app
+remains a single-user local MVP without tenant isolation or access control.
+
+### Verification
+
+All 180 backend tests passed, including 26 PostgreSQL integration cases. New tests
+cover settings/request bounds, route defaults and overrides, filtering before
+limit, AND-combined filters, unknown document IDs, weak evidence without an LLM
+call, retrieval past duplicate candidates, preserved code distinctions, safe
+overlap cleanup, context budgets and citation provenance. The 23 frontend tests
+passed, including control serialization, clearing scope/defaults, and keeping a
+displayed answer's original scope. Ruff lint/format, ESLint, TypeScript and Vite
+build checks passed.
+
+Browser smoke checks used a disposable database, local Ollama embeddings and the
+configured `gpt-5.4-mini` on synthetic transaction documentation. The model returned
+a ROLLBACK answer with valid `[S1]` references, and the UI opened the original
+excerpt. A missing `MAX_RETRY_COUNT` question fell below the retrieval cutoff and
+returned insufficient evidence without generation. A related transaction/retry
+question retrieved a passage at cosine similarity 0.410 (above the 0.35 cutoff),
+but the model declined because no retry count was documented. Combining the
+selected Markdown document with a PDF filter also returned insufficient evidence
+without widening scope. Desktop/mobile controls had no horizontal overflow. The
+disposable database and test server were removed, and the normal backend restored. These are small smoke checks, not evidence of overall retrieval or
+answer quality; the dedicated evaluation milestone remains next.
+
+For interviews, explain the precision/recall trade-off in top-k and cutoff tuning,
+why metadata filtering must precede limiting, why candidates and final context
+are different, and why exact cleanup preserves provenance. Distinguish deterministic
+validation from probabilistic evidence judgement and explain why quality must be
+measured after changing retrieval settings or prompts.
