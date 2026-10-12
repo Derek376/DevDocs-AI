@@ -1,70 +1,161 @@
 # DevDocs AI
 
-**Ask technical documentation. Check the evidence behind the answer.**
+**A technical documentation assistant with semantic search, cited answers and a bounded tool-using agent.**
 
-DevDocs AI is a local documentation assistant that combines semantic retrieval
-with source-grounded generation. Upload a text, Markdown or text-based PDF file,
-index its chunks, and ask questions with citations linking back to the exact
-excerpts. An optional assistant can choose retrieval, metadata inspection or a
-cited summary of a selected document.
+DevDocs AI turns uploaded documentation into a searchable knowledge base. Users
+upload text, Markdown or text-based PDFs, ask questions, and inspect the passages
+behind each generated answer. The project combines a Python/FastAPI backend,
+a React/TypeScript frontend and PostgreSQL with pgvector, with automated tests,
+Docker Compose and GitHub Actions CI.
 
-**Status:** Milestones 0–11 complete. This is a portfolio-ready local, single-user
-MVP, not a publicly deployed multi-tenant service. Runtime AI providers are OpenAI
-only: `gpt-5.4-mini` generates answers and `text-embedding-3-small` generates
-1536-dimensional vectors. No Ollama installation is required.
+The core engineering problem is making generated answers **traceable to retrieved
+evidence** while handling ingestion, indexing and model failures predictably.
+Generated prose and source excerpts are returned separately; users can expand
+citations to check what the documentation actually says.
 
-![A grounded answer with an expanded source citation](docs/screenshots/grounded-answer.jpg)
+[Architecture](docs/architecture.md) · [Demo](docs/demo.md) · [API reference](docs/api.md) · [Evaluation](evaluation/current-model-2026-10-12/README.md)
 
-The screenshot uses [fictional AtlasDB documentation](examples/atlasdb-transactions.md)
-and a live OpenAI response in a disposable database. It illustrates provenance,
-not a general accuracy guarantee. [More screenshots and reproduction steps](docs/demo.md).
+![Generated answer with an expanded source citation](docs/screenshots/grounded-answer.jpg)
 
-## What you can try
+Actual application screenshot using [fictional AtlasDB documentation](examples/atlasdb-transactions.md)
+and a live OpenAI response. The [demo guide](docs/demo.md) also shows insufficient
+evidence and a tool-selected summary, with reproduction steps.
 
-- Upload UTF-8 `.txt`/`.md` or text-based PDF documents up to 10 MiB.
-- Index documents and search by meaning rather than exact keywords.
-- Ask questions across the collection or restrict them by document/file type.
-- Expand citations to inspect filenames, chunk positions, PDF pages and excerpts.
-- Receive an explicit insufficient-evidence result when the pipeline declines.
-- Use assistant mode for verified metadata or a bounded document summary.
+## Features
 
-Upload and indexing are separate backend operations. The UI's **Upload and index**
-button performs both; **Text ready** alone does not prove a document is searchable.
-Indexing badges describe the current browser session. For existing documents,
-use **Index for search**. Re-index after changing embedding models or dimensions.
+- **Document ingestion:** validate and extract UTF-8 TXT, Markdown and text-based
+  PDF files up to 10 MiB; store metadata and ordered chunks with PDF page references.
+- **Semantic retrieval:** batch-generate embeddings, persist vectors in pgvector,
+  and search by cosine similarity with document and file-type filters.
+- **RAG answers:** build bounded, deduplicated context and validate structured
+  model output and citation references before returning an answer.
+- **Inspectable sources:** expand citations to view the filename, chunk, page and
+  actual excerpt; display an insufficient-evidence result when the pipeline declines.
+- **Tool-using assistant:** let the model choose one validated read-only operation:
+  retrieve documentation, inspect metadata or summarize a selected document.
+- **Usable frontend:** upload/index controls, document library, question interface,
+  search scope, loading states and useful failure messages.
 
-## Quick start with Docker
+## Engineering highlights
 
-Install Docker Engine/Desktop with Compose v2 or newer. From a local clone's root,
-copy the example once; keep an existing `.env` when returning to the project:
+| Decision | Reason and trade-off |
+| --- | --- |
+| PostgreSQL + pgvector | Keep relational metadata, source text and vectors in one transactional database. Exact cosine search is simple at this scale; query cost grows with the collection. |
+| Separate embedding and generation contracts | Keep provider logic out of API and service code. OpenAI is the implemented provider; changing embeddings requires re-indexing. |
+| Atomic re-indexing | Validate every embedding batch before replacing stored vectors, preserving previous vectors on failure. Pending vectors remain in memory. |
+| Short database transactions | Read source data and release the transaction before slow model HTTP calls, reducing connection occupancy. |
+| Citation validation plus semantic evaluation | Reject invented source labels and mismatched references in code; separately review whether cited passages support each claim. |
+| Bounded agent execution | Validate tool names and selected document scope, then execute one read-only tool. No autonomous loop or arbitrary SQL/shell execution. |
+| Layered verification | Use fake providers for deterministic contracts, real PostgreSQL for persistence behavior, and live evaluation for model quality. |
+
+Configuration and API keys stay on the backend. The application also includes
+request correlation IDs, structured logs, provider timeouts, safe error responses,
+versioned Alembic migrations and ordered container startup.
+
+## Evaluation results
+
+The [12 October 2026 evaluation](evaluation/current-model-2026-10-12/README.md) used
+`text-embedding-3-small` (1536 dimensions) and `gpt-5.4-mini` on nine synthetic
+questions across six fictional documents. Raw outputs, supplied context,
+claim/source reviews and source fingerprints are committed alongside the results.
+
+| Metric | Recorded result |
+| --- | --- |
+| Retrieval precision, macro across 7 labelled cases | **70.0%** |
+| Evidence recall, macro across 7 labelled cases | **100%** |
+| Groundedness | **16/16 reviewed claims supported** |
+| Citation correctness | **16/16 reviewed claim/source pairs supported** |
+| Expected answer/refusal status | **8/9 cases** |
+| Operational errors | **0/9 cases** |
+
+The remaining status failure is instructive: when the version was unspecified,
+the model gave grounded limits for both versions instead of the dataset's expected
+strict refusal. This is a policy mismatch, rather than an invented fact. Retrieval
+also included distractors despite finding all labelled evidence.
+
+These are **one run and one Codex AI source review**, not independent human review
+or a general accuracy benchmark. The dataset does not evaluate long documents,
+PDF extraction or agent routing. A valid citation does not by itself establish
+semantic correctness. The [evaluation methodology](evaluation/README.md) defines
+the denominators and rubric and preserves the historical embedding-model baseline.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    UI[React + TypeScript] -->|/api| P[Vite proxy or Nginx]
+    P --> API[FastAPI routes]
+    API --> S[Ingestion, RAG and agent services]
+    S --> DB[(PostgreSQL + pgvector)]
+    S --> E[Embedding provider]
+    S --> L[Generation / tool provider]
+    E --> O[OpenAI APIs]
+    L --> O
+```
+
+**Ingestion:** validate → extract → chunk → persist text → explicit indexing →
+batch embeddings → atomic vector update.
+
+**RAG:** question → query embedding → cosine retrieval → context cleanup/budget →
+LLM → citation validation → generated answer plus separate evidence.
+
+**Agent:** question → model-selected tool → argument/scope validation → read-only
+execution → database metadata or a grounded content response.
+
+The backend is a modular monolith with API, service, persistence and AI boundaries.
+[Architecture details](docs/architecture.md) include ingestion/RAG sequence diagrams,
+the data model and design trade-offs.
+
+| Layer | Technologies |
+| --- | --- |
+| Frontend | React, TypeScript, Vite |
+| Backend | Python, FastAPI, Pydantic, HTTPX |
+| Persistence | PostgreSQL, pgvector, SQLAlchemy, Alembic |
+| AI | OpenAI `text-embedding-3-small`, `gpt-5.4-mini` |
+| Verification | pytest, Vitest, React Testing Library, Ruff, ESLint |
+| Infrastructure | Docker Compose, Nginx, GitHub Actions |
+
+## Run locally with Docker
+
+Prerequisites: Docker Engine/Desktop with Compose v2 and an OpenAI API key.
+This is a locally tested, single-user MVP; a hosted demo is not provided.
+
+From the repository root, copy the example **once**; keep an existing `.env`:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` locally. Set a nonempty `POSTGRES_PASSWORD` and your `OPENAI_API_KEY`.
-The example already selects the models above. Keep credentials out of Git,
-browser code, `VITE_*` variables and Docker build arguments.
+Edit `.env` locally and set `POSTGRES_PASSWORD` and `OPENAI_API_KEY`. The example
+selects `text-embedding-3-small` and `gpt-5.4-mini`. Keep secrets out of Git,
+frontend code, `VITE_*` variables and Docker build arguments. Live AI operations
+incur provider usage charges.
 
 ```bash
 docker compose config --quiet
 docker compose up --build --detach --wait --wait-timeout 120
 ```
 
-Compose starts PostgreSQL, waits for readiness, runs Alembic migrations, then
-starts the API and frontend. First builds can take several minutes.
+Compose waits for PostgreSQL, applies migrations, then starts the backend and
+frontend. First builds can take several minutes.
 
 | Service | Default URL |
 | --- | --- |
 | Application | http://localhost:8080 |
 | Interactive API documentation | http://localhost:8000/docs |
-| Alternative API documentation | http://localhost:8000/redoc |
 | OpenAPI schema | http://localhost:8000/openapi.json |
 | Database readiness | http://localhost:8000/ready |
 
-Upload `examples/atlasdb-transactions.md`, then ask:
-**“How do I discard uncommitted changes?”** Expand its citation to check the answer.
-In assistant mode, select the document and ask **“Summarize this document.”**
+Try the project:
+
+1. Upload `examples/atlasdb-transactions.md` using **Upload and index**.
+2. Wait for **Ready for questions**, then ask “How do I discard uncommitted changes?”
+3. Expand the citation and compare the answer with the excerpt.
+4. Select the document, switch to assistant mode and ask “Summarize this document.”
+
+Upload and indexing are separate operations. **Text ready** alone does not mean
+searchable; indexing badges reflect the current browser session. Use **Index for
+search** for existing documents and re-index after changing embedding models.
 
 Stop while retaining documents:
 
@@ -72,17 +163,15 @@ Stop while retaining documents:
 docker compose down
 ```
 
-Named volumes retain document text and vectors. Adding `--volumes` deletes them.
-If ports are occupied, stop the competing local service or change `POSTGRES_PORT`,
-`BACKEND_PORT` and `FRONTEND_PORT` in `.env`; Compose maps the database internally
-to `db:5432`. Changing a password does not reset an initialized database's password.
-Health/readiness checks do not call OpenAI; missing credentials cause a useful
-error when an AI operation is attempted. [Detailed operations guide](docs/production.md).
+The named volume retains document text and vectors; adding `--volumes` deletes it.
+For port conflicts, runtime configuration and troubleshooting, see the
+[operations guide](docs/production.md). Health/readiness checks do not test OpenAI
+access or answer quality.
 
 ## Local development
 
-Use Python 3.12–3.14, uv, and Node 24 (the CI version). Node must be at least
-22.12. Start the database from the repository root, then run the backend:
+Use Python 3.12–3.14, uv, and Node 24 (the CI version; minimum 22.12).
+Start PostgreSQL from the repository root, then run the backend:
 
 ```bash
 docker compose up --detach db
@@ -100,68 +189,15 @@ npm ci
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. Vite proxies `/api` to port 8000; Nginx does the same
-in Docker. Keep the native backend on port 8000 for this development proxy, and
-use `POSTGRES_HOST=127.0.0.1` with the database's published port. Do not run the
-full Compose frontend/backend on the same ports as local development servers.
+Open http://127.0.0.1:5173. Vite proxies `/api` to the backend on port 8000;
+use `POSTGRES_HOST=127.0.0.1` and the database's published port for native development.
+Avoid running the full Compose application on the same ports as native servers.
 
-## Architecture and engineering decisions
+## Testing and CI
 
-```mermaid
-flowchart LR
-    U[User] --> UI[React + Vite]
-    UI -->|same-origin /api| P[Vite proxy or Nginx]
-    P --> API[FastAPI routes]
-    API --> S[Ingestion, RAG and agent services]
-    S --> R[Persistence queries]
-    R --> DB[(PostgreSQL + pgvector)]
-    S --> E[EmbeddingProvider]
-    S --> L[LLMProvider / ToolProvider]
-    E --> O[OpenAI APIs]
-    L --> O
-```
-
-**Ingestion:** validate → extract → chunk → persist text. Explicit indexing then
-embeds ordered batches and atomically writes vectors.
-
-**RAG:** question → embedding → cosine search → deduplicate/budget context →
-LLM → citation validation → answer plus separate evidence.
-
-**Assistant:** question → one tool choice → validate name/scope → read-only tool →
-verified metadata or one grounded generation. [Architecture details](docs/architecture.md).
-
-| Decision | Why, and the trade-off |
-| --- | --- |
-| Modular monolith | API, service, persistence and provider boundaries remain testable without the operational overhead of separate services |
-| PostgreSQL + pgvector | Relational metadata and vectors share transactions; exact search is simple but scans compatible vectors as the collection grows |
-| Separate embedding/generation contracts | Retrieval and generation perform different jobs; changing embeddings requires re-indexing, while changing generation does not |
-| Character chunks with overlap | Simple, deterministic and preserves page references; boundaries can split code and characters do not predict token counts reliably |
-| Atomic re-indexing | All batches must validate before existing vectors change; this preserves previous vectors on failure but holds pending vectors in memory |
-| Short DB transactions | Snapshot source data and release read transactions before model HTTP calls; avoids occupying a database connection during slow inference |
-| Strict output plus citation checks | Reject malformed answers and invented reference labels; this does not prove that a cited passage supports the claim |
-| One read-only agent tool | Demonstrates model-directed execution with scope validation and bounded calls; cannot handle multi-step tasks in one request |
-
-The embedding model maps text to vectors. Cosine similarity compares their
-**direction**, enabling semantically related passages to match without sharing
-keywords. A similarity score is not answer confidence. The configured 0.35 cutoff
-is a heuristic that needs evaluation for the current model and corpus.
-
-## API
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/health`, `/ready` | API liveness / database connectivity |
-| POST / GET | `/documents` | Upload / paginated metadata list |
-| GET | `/documents/{id}/chunks` | Inspect stored source text |
-| POST | `/documents/{id}/index` | Generate and store document embeddings |
-| POST | `/search` | Retrieve source chunks without generation |
-| POST | `/questions` | Fixed RAG with validated citations |
-| POST | `/agent/questions` | Optional one-tool assistant |
-
-[API examples, response contracts and errors](docs/api.md).
-[Committed OpenAPI snapshot](docs/openapi.json); the running API's schema is authoritative.
-
-## Testing, CI and evaluation
+Recorded local verification: **263 backend tests**, including **30 real PostgreSQL
+integration tests**, and **29 frontend tests** passed, along with lint, formatting,
+TypeScript/Vite build, Docker image builds and Compose smoke checks.
 
 From `backend/`:
 
@@ -172,68 +208,49 @@ uv run --locked pytest -q
 uv run --locked python -m evals validate
 ```
 
-Without `TEST_DATABASE_URL`, PostgreSQL integration cases are explicitly skipped.
-[Run the full suite safely against disposable databases](docs/testing.md).
+Without `TEST_DATABASE_URL`, database integration cases explicitly skip. The
+[testing guide](docs/testing.md) explains how to run them in disposable databases.
 From `frontend/`, run `npm test`, `npm run lint` and `npm run build`.
 
-Local verification: **263 backend tests (30 database integration cases)** and
-**29 frontend tests** passed, as did lint, TypeScript/Vite, image builds and the
-Compose smoke. Mock providers test failure and citation contracts deterministically;
-live smoke checks demonstrate provider wiring using a tiny fictional document.
+[GitHub Actions](.github/workflows/ci.yml) defines backend, frontend and container
+jobs. CI uses fake model providers and disposable databases without paid AI calls;
+live model evaluation is an explicit separate command. Deployment remains manual.
+The local results above do not assert a successful hosted CI run.
 
-[GitHub Actions](.github/workflows/ci.yml) runs backend, frontend and container jobs
-with disposable databases and no paid AI calls. This implements **CI**; deployment
-is manual. A checked-in workflow is not evidence of a successful hosted run.
+## API and repository guide
 
-The [current-model nine-question evaluation](evaluation/current-model-2026-10-12/README.md)
-uses `text-embedding-3-small` (1536 dimensions) and GPT-5.4 mini. One live run recorded
-**70.0% retrieval precision**, **100% evidence recall**, **16/16 supported claims**
-and **16/16 supporting citation pairs**, with **8/9 expected statuses** and no
-operational errors. Semantic scores come from one Codex AI source review, not
-independent human review. Nine synthetic cases do not establish general accuracy
-or agent quality.
-
-The [frozen historical run](evaluation/README.md#historical-recorded-baseline) remains
-available for comparison. Dataset, prompt and retrieval settings match; historical
-code/environment and provider snapshots are not established as identical. A
-single-run difference does not prove that changing embeddings caused an improvement.
-
-## Limitations and next improvements
-
-This local MVP has no authentication, tenant isolation, TLS termination, backups
-or public deployment. Uploaded files are extracted to database text; original file
-binaries are not retained. Scanned PDFs need OCR, which is unsupported.
-
-Grounding remains probabilistic: retrieval can omit relevant evidence, document
-instructions can influence a model, and valid citations can accompany unsupported
-claims. Summaries use the first five chunks and a 5000-character excerpt budget,
-with visible partial-coverage notices. There is no conversation memory, streaming,
-document deletion API, hybrid search or reranker. Ingestion/indexing happen within
-requests, with per-call timeouts and no durable queue; a client timeout does not
-turn the request into a recoverable background job.
-
-Priorities for further work are broader, repeated current-model evaluation, retrieval tuning,
-structure-aware chunking, then durable ingestion jobs. Add auth/tenant filtering,
-backups and deployment controls before introducing private multi-user access.
-Use approximate indexes only after measuring a collection size that justifies
-them. These are proposed improvements, not implemented features.
-
-## Explore the code and explain the project
+The REST API exposes document upload/listing, chunk inspection, indexing, semantic
+search, fixed RAG questions and agent questions, plus liveness/readiness endpoints.
+See [request examples and error contracts](docs/api.md) or the
+[generated OpenAPI snapshot](docs/openapi.json); the running schema is authoritative.
 
 ```text
 backend/app/api/          HTTP validation and response contracts
 backend/app/services/     Ingestion, retrieval, RAG and agent orchestration
-backend/app/persistence/  SQLAlchemy models, sessions and queries
-backend/app/ai/           Provider contracts and OpenAI HTTP adapters
+backend/app/persistence/  Models, database sessions and queries
+backend/app/ai/           Provider contracts and OpenAI adapters
 backend/migrations/       Versioned PostgreSQL/pgvector schema
 frontend/src/             React UI, HTTP client and interaction tests
-evaluation/               Synthetic corpus, questions and reviewed model runs
+evaluation/               Synthetic dataset and reviewed model runs
 docs/                     Architecture, API, operations, demo and interview guides
 examples/                 Fictional documentation for a reproducible demo
 ```
 
-[Interview talking points](docs/interview.md) cover embeddings, chunking, cosine
-search, hallucination, context limits, async processing, REST, database design,
-testing, Docker, CI and tool calling—with concrete code pointers and trade-offs.
-[Development journal](docs/development-journal.md) preserves the milestone-by-milestone
-learning history. [Agent guide](docs/agent.md) explains the optional extension.
+## Limitations and next steps
+
+The shared collection has no authentication or tenant isolation. Public deployment
+would require access controls, TLS termination, backups and operational safeguards.
+Original uploaded binaries are not retained, and scanned PDFs require unsupported OCR.
+
+Chunking uses character windows with overlap; it can split code and is not token-aware.
+Retrieval uses exact vector search without a hybrid keyword stage or reranker.
+Summaries cover the first five chunks within a 5000-character excerpt budget,
+with partial-coverage notices. There is no conversation memory or streaming.
+Ingestion/indexing run within requests rather than a durable job queue.
+
+Priorities are broader held-out evaluation with independent review and repeated
+runs, retrieval tuning, structure-aware chunking and durable ingestion jobs.
+Approximate vector indexes should follow measured scale/latency needs. These are
+future improvements, not implemented capabilities.
+
+[Interview discussion guide](docs/interview.md) · [Agent design](docs/agent.md) · [Development journal](docs/development-journal.md)
