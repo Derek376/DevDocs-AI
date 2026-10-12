@@ -11,6 +11,15 @@ Three questions expect `insufficient_evidence`. The duplicate transaction docume
 exercises context deduplication during collection-wide search; the answerable
 transaction cases use explicit document filters so their gold provenance is stable.
 
+## Current-model recorded run
+
+The [12 October 2026 current-model run](current-model-2026-10-12/README.md) uses
+`text-embedding-3-small` (1536 dimensions) and `gpt-5.4-mini`. It recorded 70.0%
+retrieval precision, 100% evidence recall, 16/16 supported claims, 16/16 supporting
+citation pairs and 8/9 expected statuses with zero operational errors. Its source
+review is by one Codex AI reviewer, not an independent human study. The historical
+baseline below is preserved unchanged; this new result does not evaluate agents.
+
 ## Run and review
 
 From `backend/`, using the existing environment and locked dependencies:
@@ -123,7 +132,7 @@ by this dataset.
 ## Historical recorded baseline
 
 This frozen baseline predates the switch to OpenAI embeddings. Its scores do not
-measure the current embedding model; collect and review a new run to compare.
+measure the current embedding model; compare the separately recorded current run above.
 
 Inspect [run.json](baseline/run.json), [review.json](baseline/review.json), and
 [summary.json](baseline/summary.json). The recorded configuration is

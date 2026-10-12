@@ -85,5 +85,5 @@ claim that all future model answers will be correct.
 
 [CI configuration](../.github/workflows/ci.yml) runs backend, frontend and container
 checks without paid API calls. Confirm its hosted run in GitHub before claiming
-CI passed remotely. [Evaluation methodology and historical baseline](../evaluation/README.md)
+CI passed remotely. [Evaluation methodology and recorded model runs](../evaluation/README.md)
 explain the separate manual quality assessment.

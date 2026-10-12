@@ -185,12 +185,18 @@ live smoke checks demonstrate provider wiring using a tiny fictional document.
 with disposable databases and no paid AI calls. This implements **CI**; deployment
 is manual. A checked-in workflow is not evidence of a successful hosted run.
 
-The [historical nine-question evaluation](evaluation/README.md) records 63.6%
-retrieval precision, 100% evidence recall, 15/15 supported claims and 16/18
-supporting citation pairs. It used `embeddinggemma` vectors and GPT-5.4 mini before
-the OpenAI-only embedding switch. **These scores do not measure the current
-embedding model or assistant.** A fresh live run and manual review are needed
-before making current quality claims.
+The [current-model nine-question evaluation](evaluation/current-model-2026-10-12/README.md)
+uses `text-embedding-3-small` (1536 dimensions) and GPT-5.4 mini. One live run recorded
+**70.0% retrieval precision**, **100% evidence recall**, **16/16 supported claims**
+and **16/16 supporting citation pairs**, with **8/9 expected statuses** and no
+operational errors. Semantic scores come from one Codex AI source review, not
+independent human review. Nine synthetic cases do not establish general accuracy
+or agent quality.
+
+The [frozen historical run](evaluation/README.md#historical-recorded-baseline) remains
+available for comparison. Dataset, prompt and retrieval settings match; historical
+code/environment and provider snapshots are not established as identical. A
+single-run difference does not prove that changing embeddings caused an improvement.
 
 ## Limitations and next improvements
 
@@ -206,7 +212,7 @@ document deletion API, hybrid search or reranker. Ingestion/indexing happen with
 requests, with per-call timeouts and no durable queue; a client timeout does not
 turn the request into a recoverable background job.
 
-Priorities for further work are a current-model evaluation, retrieval tuning,
+Priorities for further work are broader, repeated current-model evaluation, retrieval tuning,
 structure-aware chunking, then durable ingestion jobs. Add auth/tenant filtering,
 backups and deployment controls before introducing private multi-user access.
 Use approximate indexes only after measuring a collection size that justifies
@@ -221,7 +227,7 @@ backend/app/persistence/  SQLAlchemy models, sessions and queries
 backend/app/ai/           Provider contracts and OpenAI HTTP adapters
 backend/migrations/       Versioned PostgreSQL/pgvector schema
 frontend/src/             React UI, HTTP client and interaction tests
-evaluation/               Synthetic corpus, questions and reviewed historical run
+evaluation/               Synthetic corpus, questions and reviewed model runs
 docs/                     Architecture, API, operations, demo and interview guides
 examples/                 Fictional documentation for a reproducible demo
 ```

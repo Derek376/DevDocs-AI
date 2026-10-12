@@ -61,13 +61,16 @@ See [the agent guide](agent.md) and [service](../backend/app/services/agent.py).
 
 ## Be precise about results and limitations
 
-The historical nine-question baseline used a previous embedding model. Its scores
-cannot establish current OpenAI embedding quality or agent quality. Show the
-[saved evaluation and review](../evaluation/README.md), identify that limitation,
-and propose a fresh, larger evaluation before tuning thresholds. Demo screenshots
-show real examples, not a benchmark. Do not invent throughput, latency, cost or
-accuracy measurements.
+The [current-model run](../evaluation/current-model-2026-10-12/README.md) recorded
+70.0% retrieval precision, 100% recall and 16/16 supported claims and citation pairs.
+Explain the denominators and its one Codex AI review; nine synthetic questions and
+one run cannot prove general accuracy. The strict unspecified-version refusal
+policy still failed, despite a grounded conditional answer. The historical run
+uses a previous embedding model and remains separate. Neither run measures agent
+quality. Propose held-out realistic cases, repeated runs and independent review
+before tuning thresholds. Demo screenshots show examples, not a benchmark. Do not
+invent throughput, latency, cost or accuracy measurements.
 
 The current system has no authentication, tenant isolation, backups or durable
 background jobs. Explain the [architecture trade-offs](architecture.md), then
-prioritize current-model evaluation and reliable ingestion before adding features.
+prioritize broader evaluation and reliable ingestion before adding features.

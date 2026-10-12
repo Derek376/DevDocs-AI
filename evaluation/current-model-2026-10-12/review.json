@@ -1,0 +1,224 @@
+{
+  "report_sha256": "637021315b8604c5fd830e58309f576703f693c9e8232bb529ebf12b5d2107ef",
+  "reviewer": "Codex manual source review (one AI reviewer; not independent human review)",
+  "cases": [
+    {
+      "case_id": "rollback",
+      "complete": true,
+      "claims": [
+        {
+          "text": "Use ROLLBACK to discard uncommitted changes in the current transaction after an error",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S1 states this operation and scope verbatim."
+        }
+      ]
+    },
+    {
+      "case_id": "committed",
+      "complete": true,
+      "claims": [
+        {
+          "text": "COMMIT makes changes permanent",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S1 states COMMIT makes its changes permanent. The opening No answers the same supported rollback limitation."
+        },
+        {
+          "text": "ROLLBACK cannot undo changes after COMMIT",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S1 states this limitation verbatim."
+        }
+      ]
+    },
+    {
+      "case_id": "v2-limit",
+      "complete": true,
+      "claims": [
+        {
+          "text": "The maximum upload size in AtlasDocs version 2 is 10 MiB",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S1 explicitly identifies version 2 and 10 MiB."
+        }
+      ]
+    },
+    {
+      "case_id": "v2-formats",
+      "complete": true,
+      "claims": [
+        {
+          "text": "AtlasDocs version 2 accepts UTF-8 TXT, Markdown, and text-based PDF files",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "All listed formats are explicit in S1; the shared sentence-end marker applies to each constituent claim."
+        },
+        {
+          "text": "scanned PDFs are unsupported",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S1 explicitly excludes scanned PDFs."
+        },
+        {
+          "text": "version 2 has no OCR",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S1 explicitly gives absence of OCR as the reason."
+        }
+      ]
+    },
+    {
+      "case_id": "http-settings",
+      "complete": true,
+      "claims": [
+        {
+          "text": "The AtlasDocs HTTP client read timeout is 30 seconds",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S1 states the HTTP read timeout; the sentence-end S1 applies to all three settings."
+        },
+        {
+          "text": "it retries failed requests at most 2 times",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S1 states at most 2 HTTP retries, not database retries."
+        },
+        {
+          "text": "a 500 millisecond delay between retries",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S1 explicitly states this delay."
+        }
+      ]
+    },
+    {
+      "case_id": "two-documents",
+      "complete": true,
+      "claims": [
+        {
+          "text": "Use ROLLBACK to discard uncommitted changes in the current transaction after an error",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S2",
+              "supports_claim": true
+            }
+          ],
+          "notes": "The first sentence-end S2 maps to both transaction claims, which S2 explicitly states."
+        },
+        {
+          "text": "ROLLBACK cannot undo changes after COMMIT",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S2",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S2 explicitly states the post-COMMIT limitation; includes this extra claim rather than grading only the reference answer."
+        },
+        {
+          "text": "The AtlasDocs HTTP client read timeout is 30 seconds",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "The separate S1 marker follows the timeout statement; S1 explicitly supports it."
+        }
+      ]
+    },
+    {
+      "case_id": "unspecified-version",
+      "complete": true,
+      "claims": [
+        {
+          "text": "AtlasDocs’s maximum upload size depends on the version",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "The opening clause shares the first S1 marker with the version 1 limit. S1 says its limits apply only to version 1 and directs readers to the version 2 guide for version 2 limits, supporting version dependence."
+        },
+        {
+          "text": "version 1 allows 2 MiB",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S1",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S1 explicitly states the version 1 limit. This is grounded despite the strict expected refusal policy."
+        },
+        {
+          "text": "version 2 allows 10 MiB",
+          "supported": true,
+          "citations": [
+            {
+              "label": "S2",
+              "supports_claim": true
+            }
+          ],
+          "notes": "S2 explicitly states the version 2 limit. Unlike the historical grouped markers, this answer cites each version separately."
+        }
+      ]
+    }
+  ]
+}
