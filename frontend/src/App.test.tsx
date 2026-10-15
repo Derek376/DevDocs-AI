@@ -112,6 +112,7 @@ describe('documentation workspace', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Document saved, but indexing failed',
     )
+    await user.click(screen.getByText('Document library'))
     await user.click(
       await screen.findByRole('button', {
         name: 'Index for search: transactions.md',
@@ -124,10 +125,14 @@ describe('documentation workspace', () => {
   })
 
   it('does not assume pre-existing documents have been indexed', async () => {
+    const user = userEvent.setup()
     vi.mocked(api.listDocuments).mockResolvedValue([document])
     render(<App />)
     expect(await screen.findByText('transactions.md')).toBeInTheDocument()
     expect(screen.getByText(/Text ready/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Use for questions: transactions.md')).not.toBeVisible()
+    await user.click(screen.getByText('Document library'))
+    expect(screen.getByLabelText('Use for questions: transactions.md')).toBeVisible()
     expect(screen.queryByText(/Indexed this session/)).not.toBeInTheDocument()
   })
 
@@ -179,6 +184,7 @@ describe('documentation workspace', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Database unavailable',
     )
+    await user.click(screen.getByText('Document library'))
     await user.click(
       screen.getByRole('button', { name: 'Retry loading documents' }),
     )
@@ -199,6 +205,7 @@ describe('documentation workspace', () => {
       .mockResolvedValueOnce([])
     render(<App />)
     await screen.findAllByText('transactions.md')
+    await user.click(screen.getByText('Document library'))
     const firstSignal = vi.mocked(api.listDocuments).mock.calls[0][1]
     await user.click(screen.getByRole('button', { name: 'Next' }))
     expect(
@@ -316,11 +323,14 @@ it('selects a document and format for questions, then restores server defaults',
   const user = userEvent.setup()
   vi.mocked(api.listDocuments).mockResolvedValue([document])
   render(<App />)
+  await user.click(screen.getByText('Document library'))
   await user.click(
     await screen.findByRole('button', {
       name: 'Use for questions: transactions.md',
     }),
   )
+  await user.click(screen.getByText('Document library'))
+  await user.click(screen.getByText('Search options'))
   await user.type(screen.getByLabelText('Maximum source chunks'), '3')
   await user.selectOptions(
     screen.getByLabelText('Document format'),
@@ -355,6 +365,7 @@ it('keeps the scope of a displayed answer when the next question scope changes',
     { ...document, id: 'doc-2', filename: 'other.md' },
   ])
   render(<App />)
+  await user.click(screen.getByText('Document library'))
   await user.click(
     await screen.findByRole('button', {
       name: 'Use for questions: transactions.md',
@@ -389,6 +400,7 @@ it('uses assistant mode to inspect selected document metadata without showing it
     tool: 'inspect_document_metadata', document, context_truncated: false,
   })
   render(<App />)
+  await user.click(screen.getByText('Document library'))
   await user.click(await screen.findByRole('button', { name: 'Use for questions: transactions.md' }))
   await user.selectOptions(screen.getByLabelText('Assistant mode'), 'agent')
   expect(screen.getByLabelText('Maximum source chunks')).toBeDisabled()
@@ -435,4 +447,45 @@ it('requests a selection when metadata or summary has no selected document', asy
   await user.click(screen.getByRole('button', { name: /Ask question/ }))
   expect(await screen.findByRole('heading', { name: 'Select a document' })).toBeInTheDocument()
   expect(api.askAgent).toHaveBeenCalledWith('Summarize a document', undefined)
+})
+
+
+it('keeps filters and the question when search options are collapsed', async () => {
+  const user = userEvent.setup()
+  render(<App />)
+  const summary = screen.getByText('Search options')
+  const disclosure = summary.closest('details')!
+  const limit = screen.getByLabelText('Maximum source chunks')
+  expect(disclosure.open).toBe(false)
+  expect(limit).not.toBeVisible()
+  await user.click(summary)
+  expect(limit).toBeVisible()
+  await user.type(limit, '3')
+  await user.selectOptions(screen.getByLabelText('Document format'), 'text/markdown')
+  await user.type(screen.getByLabelText('Your question'), 'How do I undo changes?')
+  await user.click(summary)
+  expect(disclosure.open).toBe(false)
+  expect(summary).toHaveTextContent('3 sources · Markdown')
+  await user.click(screen.getByRole('button', { name: /Ask question/ }))
+  await screen.findByRole('heading', { name: 'Generated answer' })
+  expect(api.askQuestion).toHaveBeenCalledWith('How do I undo changes?', {
+    top_k: 3,
+    media_type: 'text/markdown',
+  })
+  await user.click(summary)
+  expect(limit).toHaveValue(3)
+  expect(screen.getByLabelText('Your question')).toHaveValue('How do I undo changes?')
+})
+
+
+it('reports invalid retrieval limits even when search options are collapsed', async () => {
+  const user = userEvent.setup()
+  render(<App />)
+  await user.click(screen.getByText('Search options'))
+  await user.type(screen.getByLabelText('Maximum source chunks'), '0')
+  await user.click(screen.getByText('Search options'))
+  await user.type(screen.getByLabelText('Your question'), 'How do I undo changes?')
+  await user.click(screen.getByRole('button', { name: /Ask question/ }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('whole number from 1 to 20')
+  expect(api.askQuestion).not.toHaveBeenCalled()
 })

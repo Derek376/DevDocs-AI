@@ -75,8 +75,7 @@ export default function AnswerCard({
             <span className="source-count">{answer.citations.length}</span>
           </h3>
           <p className="muted">
-            These are document excerpts. Compare them with the generated claims;
-            a citation alone does not prove correctness.
+            Check the excerpts against the generated answer.
           </p>
           {answer.citations.map((source) => (
             <details id={`source-${source.label}`} key={source.chunk_id}>
